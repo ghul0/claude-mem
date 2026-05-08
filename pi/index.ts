@@ -46,10 +46,7 @@ export default function claudeMemExtension(pi: ExtensionAPI): void {
 
   pi.on("before_agent_start", handleBeforeAgentStart);
 
-  pi.on("tool_result", async (event, ctx) => {
-    await handleToolResult(event, ctx);
-    return undefined;
-  });
+  pi.on("tool_result", handleToolResult);
 
   pi.on("agent_end", async (event, ctx) => {
     await handleAgentEnd(event.messages, ctx);
