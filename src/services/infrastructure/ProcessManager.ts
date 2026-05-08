@@ -209,17 +209,12 @@ function classifyCwdForRemap(cwd: string): CwdClassification {
 
   const toplevel = gitQuery(cwd, ['rev-parse', '--show-toplevel']);
   if (!toplevel) return { kind: 'skip' };
-  const leaf = path.basename(toplevel);
 
   if (gitDir === commonDir) {
-    return { kind: 'main', project: leaf };
+    return { kind: 'main', project: toplevel };
   }
 
-  const parentRepoDir = commonDir.endsWith('/.git')
-    ? path.dirname(commonDir)
-    : commonDir.replace(/\.git$/, '');
-  const parent = path.basename(parentRepoDir);
-  return { kind: 'worktree', project: `${parent}/${leaf}` };
+  return { kind: 'worktree', project: toplevel };
 }
 
 export function runOneTimeCwdRemap(dataDirectory?: string): void {

@@ -85,6 +85,18 @@ export class TranscriptEventProcessor {
     return session.cwd;
   }
 
+  private normalizeProject(project: string | undefined, cwd: string | undefined): string | undefined {
+    if (!project || !project.trim()) {
+      return cwd ? getProjectContext(cwd).primary : undefined;
+    }
+
+    const trimmed = project.trim();
+    const looksAbsolute = trimmed.startsWith('/') || /^[A-Za-z]:\\/.test(trimmed);
+    if (looksAbsolute) return trimmed;
+
+    return cwd ? getProjectContext(cwd).primary : trimmed;
+  }
+
   private resolveProject(
     entry: unknown,
     watch: WatchTarget,
@@ -95,10 +107,12 @@ export class TranscriptEventProcessor {
     const ctx = { watch, schema, session } as any;
     const fieldSpec = event.fields?.project ?? (schema.projectPath ? { path: schema.projectPath } : undefined);
     const resolved = resolveFieldSpec(fieldSpec, entry, ctx);
-    if (typeof resolved === 'string' && resolved.trim()) return resolved;
-    if (watch.project) return watch.project;
+    if (typeof resolved === 'string' && resolved.trim()) {
+      return this.normalizeProject(resolved, session.cwd);
+    }
+    if (watch.project) return this.normalizeProject(watch.project, session.cwd);
     if (session.cwd) return getProjectContext(session.cwd).primary;
-    return session.project;
+    return this.normalizeProject(session.project, session.cwd);
   }
 
   private async handleEvent(
@@ -163,7 +177,8 @@ export class TranscriptEventProcessor {
     const cwd = typeof fields.cwd === 'string' ? fields.cwd : undefined;
     const project = typeof fields.project === 'string' ? fields.project : undefined;
     if (cwd) session.cwd = cwd;
-    if (project) session.project = project;
+    const normalizedProject = this.normalizeProject(project, session.cwd ?? cwd);
+    if (normalizedProject) session.project = normalizedProject;
   }
 
   private async handleSessionInit(session: SessionState, fields: Record<string, unknown>): Promise<void> {

@@ -1,6 +1,4 @@
 import { homedir } from 'os'
-import path from 'path';
-import { execFileSync } from 'child_process';
 import { logger } from './logger.js';
 import { detectWorktree } from './worktree.js';
 
@@ -11,48 +9,16 @@ function expandTilde(p: string): string {
   return p
 }
 
-/**
- * Resolve the git repository ROOT for a directory, so a project's name is
- * stable across its subdirectories and worktrees (#2663). Returns the absolute
- * repo-root path, or null when `dir` is not inside a git repo (or git is
- * unavailable). `--show-toplevel` resolves to the working-tree root even when
- * invoked from a worktree or a nested subdirectory.
- */
-function findGitRepoRoot(dir: string): string | null {
-  try {
-    const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      cwd: dir,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    return root || null;
-  } catch (error: unknown) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    // Not a git repo, git not installed, or dir does not exist — fall back to basename.
-    logger.debug('PROJECT_NAME', 'git rev-parse failed, falling back to basename', { dir }, err);
-    return null;
-  }
-}
-
 export function getProjectName(cwd: string | null | undefined): string {
   if (!cwd || cwd.trim() === '') {
     logger.warn('PROJECT_NAME', 'Empty cwd provided, using fallback', { cwd });
     return 'unknown-project';
   }
 
-  const expanded = expandTilde(cwd)
+  const expanded = expandTilde(cwd).replace(/\/+$/, '');
 
-  // #2663 — derive the project name from the git repo root when inside a repo so
-  // the name is stable across subdirectories/worktrees. Fall back to the cwd
-  // basename when not in a repo.
-  const repoRoot = findGitRepoRoot(expanded);
-  const nameSource = repoRoot ?? expanded;
-
-  const basename = path.basename(nameSource);
-
-  if (basename === '') {
-    const isWindows = process.platform === 'win32';
-    if (isWindows) {
+  if (expanded === '' || expanded === '/') {
+    if (process.platform === 'win32') {
       const driveMatch = cwd.match(/^([A-Z]):\\/i);
       if (driveMatch) {
         const driveLetter = driveMatch[1].toUpperCase();
@@ -65,7 +31,7 @@ export function getProjectName(cwd: string | null | undefined): string {
     return 'unknown-project';
   }
 
-  return basename;
+  return expanded;
 }
 
 export interface ProjectContext {
@@ -85,13 +51,12 @@ export function getProjectContext(cwd: string | null | undefined): ProjectContex
   const expandedCwd = expandTilde(cwd);
   const worktreeInfo = detectWorktree(expandedCwd);
 
-  if (worktreeInfo.isWorktree && worktreeInfo.parentProjectName) {
-    const composite = `${worktreeInfo.parentProjectName}/${cwdProjectName}`;
+  if (worktreeInfo.isWorktree) {
     return {
-      primary: composite,
+      primary: cwdProjectName,
       parent: worktreeInfo.parentProjectName,
       isWorktree: true,
-      allProjects: [worktreeInfo.parentProjectName, composite]
+      allProjects: [cwdProjectName]
     };
   }
 
