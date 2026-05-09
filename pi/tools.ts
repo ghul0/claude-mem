@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ensureWorkerAvailable, workerRequest } from "./client.js";
 import { formatStatus, textResult, toolResultFromWorkerPayload } from "./format.js";
+import { isMemoryInjectionEnabled, setMemoryInjectionEnabled, toggleMemoryInjection } from "./state.js";
 
 const searchParameters = {
   type: "object",
@@ -118,10 +119,32 @@ export function registerMemoryTools(pi: ExtensionAPI): void {
 
 export function registerMemoryCommands(pi: ExtensionAPI): void {
   pi.registerCommand("cmem", {
-    description: "Show claude-mem Pi extension status",
-    handler: async (_args, ctx) => {
+    description: "Show claude-mem status or toggle context injection: /cmem on|off|toggle",
+    handler: async (args, ctx) => {
+      const text = Array.isArray(args) ? args.join(" ") : String(args ?? "");
+      const action = text.trim().toLowerCase();
+
+      if (action === "on" || action === "enable") {
+        setMemoryInjectionEnabled(true, ctx);
+        const message = "claude-mem context injection enabled";
+        if (ctx.hasUI) ctx.ui.notify(message, "info"); else console.log(message);
+        return;
+      }
+      if (action === "off" || action === "disable") {
+        setMemoryInjectionEnabled(false, ctx);
+        const message = "claude-mem context injection disabled";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning"); else console.log(message);
+        return;
+      }
+      if (action === "toggle") {
+        const enabled = toggleMemoryInjection(ctx);
+        const message = `claude-mem context injection ${enabled ? "enabled" : "disabled"}`;
+        if (ctx.hasUI) ctx.ui.notify(message, enabled ? "info" : "warning"); else console.log(message);
+        return;
+      }
+
       const status = await ensureWorkerAvailable();
-      const message = formatStatus(status);
+      const message = `${formatStatus(status)}\ncontext injection: ${isMemoryInjectionEnabled() ? "on" : "off"}`;
       if (ctx.hasUI) {
         ctx.ui.notify(message, status.healthOk ? "info" : "warning");
       } else {

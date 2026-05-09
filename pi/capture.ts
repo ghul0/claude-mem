@@ -8,11 +8,12 @@ import type {
   ToolResultEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { workerRequest } from "./client.js";
+import { curateMemoryForPrompt } from "./curator.js";
 import { getProjectInfo } from "./project.js";
 import { getContentSessionId, getLastAssistantText } from "./session.js";
+import { isMemoryInjectionEnabled, updateMemoryStatus } from "./state.js";
 
 const PLATFORM_SOURCE = "pi";
-const SEMANTIC_CONTEXT_MIN_PROMPT_LENGTH = 20;
 
 interface SessionInitResponse {
   sessionDbId?: number;
@@ -22,21 +23,9 @@ interface SessionInitResponse {
   contextInjected?: boolean;
 }
 
-interface SemanticContextResponse {
-  context?: string;
-  count?: number;
-}
-
 function notifyDebug(ctx: ExtensionContext, message: string): void {
   if (!ctx.hasUI || process.env.CLAUDE_MEM_PI_DEBUG !== "true") return;
   ctx.ui.notify(message, "warning");
-}
-
-function joinContextParts(parts: string[]): string {
-  return parts
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .join("\n\n---\n\n");
 }
 
 function isTextContent(value: unknown): value is TextContent {
@@ -94,26 +83,6 @@ async function getFileContext(event: ToolResultEvent, ctx: ExtensionContext, pro
   return formatFileObservations(payload);
 }
 
-async function getContextInject(project: string): Promise<string> {
-  const payload = await workerRequest<string>("/api/context/inject", {
-    query: { projects: project },
-    timeoutMs: 10_000,
-  });
-  return typeof payload === "string" ? payload.trim() : "";
-}
-
-async function getSemanticContext(prompt: string, project: string): Promise<string> {
-  if (!prompt || prompt.length < SEMANTIC_CONTEXT_MIN_PROMPT_LENGTH || prompt === "[media prompt]") return "";
-
-  const payload = await workerRequest<SemanticContextResponse>("/api/context/semantic", {
-    method: "POST",
-    body: JSON.stringify({ q: prompt, project, limit: 5 }),
-    timeoutMs: 10_000,
-  });
-
-  return typeof payload?.context === "string" ? payload.context.trim() : "";
-}
-
 export async function handleBeforeAgentStart(
   event: BeforeAgentStartEvent,
   ctx: ExtensionContext,
@@ -134,20 +103,25 @@ export async function handleBeforeAgentStart(
       timeoutMs: 15_000,
     });
 
-    if (init?.skipped) return undefined;
+    if (init?.skipped || !isMemoryInjectionEnabled()) return undefined;
 
-    const [timelineContext, semanticContext] = await Promise.all([
-      getContextInject(project.root).catch(() => ""),
-      getSemanticContext(prompt, project.root).catch(() => ""),
-    ]);
+    if (ctx.hasUI) {
+      ctx.ui.setStatus("claude-mem-curator", ctx.ui.theme.fg("warning", "curator: working"));
+    }
+    const curated = await curateMemoryForPrompt(event, ctx, project.root).catch((error) => {
+      notifyDebug(ctx, `claude-mem curator skipped: ${error instanceof Error ? error.message : String(error)}`);
+      return { empty: true, context: "", observationIds: [] };
+    }).finally(() => {
+      if (ctx.hasUI) ctx.ui.setStatus("claude-mem-curator", undefined);
+      updateMemoryStatus(ctx);
+    });
 
-    const content = joinContextParts([timelineContext, semanticContext]);
-    if (!content) return undefined;
+    if (curated.empty || !curated.context) return undefined;
 
     return {
       message: {
-        customType: "claude-mem-context",
-        content,
+        customType: "claude-mem-curated-context",
+        content: curated.context,
         display: true,
         details: {
           contentSessionId,
@@ -155,6 +129,7 @@ export async function handleBeforeAgentStart(
           projectName: project.name,
           promptNumber: init?.promptNumber,
           sessionDbId: init?.sessionDbId,
+          observationIds: curated.observationIds,
         },
       },
     };
