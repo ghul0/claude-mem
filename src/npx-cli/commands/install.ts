@@ -341,6 +341,23 @@ function makeIDETask(ideId: string, summary: InstallSummary): TaskDescriptor | n
       };
     }
 
+    case 'pi': {
+      return {
+        title: 'Pi: installing package extension',
+        task: async (message) => {
+          message('Loading Pi installer…');
+          const { installPiIntegration } = await import('../../services/integrations/PiInstaller.js');
+          message('Running pi install…');
+          const { result: installResult, output } = await bufferConsole(() => Promise.resolve(installPiIntegration({ version: readPluginVersion() })));
+          if (installResult.result !== 0) {
+            recordFailure('Pi: package installation failed', output || installResult.output);
+            return `Pi: package installation failed ${styleText('red', 'FAIL')}`;
+          }
+          return `Pi: package extension installed ${styleText('green', 'OK')}`;
+        },
+      };
+    }
+
     case 'windsurf': {
       return {
         title: 'Windsurf: installing hooks',
@@ -655,6 +672,7 @@ function copyPluginToMarketplace(): void {
     'package.json',
     'package-lock.json',
     'openclaw',
+    'pi',
     'dist',
     'LICENSE',
     'README.md',
@@ -1814,6 +1832,14 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
     : workerReady || finalWorkerState === 'ready'
       ? `${styleText('green', '✓')} ${runtimeLabel} running at ${styleText('underline', workerBaseUrl)}`
       : `${styleText('yellow', '⏳')} ${runtimeLabel} starting at ${styleText('underline', workerBaseUrl)} — give it ~30s, then refresh`;
+  const assistantLabel = selectedIDEs.includes('pi') && !selectedIDEs.includes('claude-code') ? 'Pi' : 'Claude Code';
+  const assistantOpenInstruction = assistantLabel === 'Pi' ? 'start Pi in any project' : 'open Claude Code in any project';
+  const frontloadInstruction = assistantLabel === 'Pi'
+    ? `  ${styleText('cyan', 'B.')} Search existing memory explicitly with ${styleText('bold', 'mem_search')} when you need prior context.`
+    : `  ${styleText('cyan', 'B.')} Front-load it: open Claude Code and run ${styleText('bold', '/learn-codebase')} to ingest the whole repo (~5 min, optional).`;
+  const activeSessionNote = assistantLabel === 'Pi'
+    ? `${styleText('dim', 'Note: run `pi list` to verify the claude-mem package, or `pi install npm:claude-mem` to reinstall.')}`
+    : `${styleText('dim', 'Note: close all Claude Code sessions before uninstalling, or ~/.claude-mem will be recreated by active hooks.')}`;
   const nextStepsHeadline = autoStartSkipped || workerAlive
     ? workerHeadline
     : `${styleText('yellow', '!')} Worker not yet ready on port ${styleText('cyan', String(workerPort))} -- still starting up; check ${styleText('bold', 'claude-mem status')} later, or start manually: ${styleText('bold', 'npx claude-mem start')}`;
@@ -1825,17 +1851,17 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   const nextSteps = [
     nextStepsHeadline,
     ``,
-    `${styleText('bold', 'First success:')} ${firstSuccessOpener}, then open Claude Code in any project. Observations stream in as Claude reads, edits, and runs commands.`,
+    `${styleText('bold', 'First success:')} ${firstSuccessOpener}, then ${assistantOpenInstruction}. Observations stream in as ${assistantLabel} reads, edits, and runs commands.`,
     ``,
     `${styleText('bold', 'Two paths from here:')}`,
     `  ${styleText('cyan', 'A.')} Just start working. Memory builds passively from your first prompt. (Recommended.)`,
-    `  ${styleText('cyan', 'B.')} Front-load it: open Claude Code and run ${styleText('bold', '/learn-codebase')} to ingest the whole repo (~5 min, optional).`,
+    frontloadInstruction,
     ``,
     `Memory injection starts on your second session in a project.`,
     `Everything stays in ${styleText('cyan', '~/.claude-mem')} on this machine.`,
     ``,
     `${styleText('dim', 'How it works: /how-it-works   ·   Disable first-session hint: CLAUDE_MEM_WELCOME_HINT_ENABLED=false')}`,
-    `${styleText('dim', 'Note: close all Claude Code sessions before uninstalling, or ~/.claude-mem will be recreated by active hooks.')}`,
+    activeSessionNote,
   ];
 
   if (isInteractive) {

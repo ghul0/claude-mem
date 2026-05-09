@@ -54,6 +54,13 @@ export function detectInstalledIDEs(): IDEInfo[] {
       hint: 'plugin-based integration',
     },
     {
+      id: 'pi',
+      label: 'Pi',
+      detected: existsSync(join(home, '.pi', 'agent')) || isCommandInPath('pi'),
+      supported: true,
+      hint: 'native package extension',
+    },
+    {
       id: 'openclaw',
       label: 'OpenClaw',
       detected: existsSync(join(home, '.openclaw')),

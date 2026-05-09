@@ -18,7 +18,8 @@
     "knowledge-graph",
     "transcript",
     "typescript",
-    "nodejs"
+    "nodejs",
+    "pi-package"
   ],
   "homepage": "https://github.com/thedotmack/claude-mem#readme"
 }
