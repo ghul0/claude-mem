@@ -40,6 +40,11 @@ async function dispatchToWorker(
 
 export const observationHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
+    if (process.env.CLAUDE_MEM_PI_PROVIDER_ACTIVE === '1' || process.env.CLAUDE_MEM_INTERNAL_AGENT) {
+      logger.debug('HOOK', 'PostToolUse: skipping internal claude-mem Pi provider session');
+      return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
+    }
+
     const { sessionId, cwd, toolName, toolInput, toolResponse } = input;
     const platformSource = normalizePlatformSource(input.platform);
 

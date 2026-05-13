@@ -196,6 +196,9 @@ export class PiProvider {
       if (estimated <= maxTokens) break;
       truncated = truncated.slice(1);
     }
+    while (truncated.length > 1 && truncated[0]?.role !== 'user') {
+      truncated = truncated.slice(1);
+    }
     return truncated;
   }
 
@@ -219,6 +222,7 @@ export class PiProvider {
 
     const args = [
       '--no-extensions',
+      '--no-session',
       '--no-context-files',
       '--no-skills',
       '--no-tools',
@@ -245,7 +249,11 @@ export class PiProvider {
       let settled = false;
       const child = spawn('pi', args, {
         cwd: process.cwd(),
-        env: { ...process.env },
+        env: {
+          ...process.env,
+          CLAUDE_MEM_PI_PROVIDER_ACTIVE: '1',
+          CLAUDE_MEM_INTERNAL_AGENT: 'pi-provider',
+        },
         stdio: ['ignore', stdoutFd, stderrFd],
       });
 

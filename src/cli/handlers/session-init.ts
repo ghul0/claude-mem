@@ -53,6 +53,11 @@ export function setSessionInitDependenciesForTesting(
 
 export const sessionInitHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
+    if (process.env.CLAUDE_MEM_PI_PROVIDER_ACTIVE === '1' || process.env.CLAUDE_MEM_INTERNAL_AGENT) {
+      logger.debug('HOOK', 'session-init: skipping internal claude-mem Pi provider session');
+      return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
+    }
+
     const { sessionId, prompt: rawPrompt } = input;
     const cwd = input.cwd ?? process.cwd();  
 
