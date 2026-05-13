@@ -52,8 +52,8 @@ async function summarizeViaServer(
 
 export const summarizeHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
-    if (process.env.CLAUDE_MEM_PI_PROVIDER_ACTIVE === '1' || process.env.CLAUDE_MEM_INTERNAL_AGENT) {
-      logger.debug('HOOK', 'summarize: skipping internal claude-mem Pi provider session');
+    if (process.env.CLAUDE_MEM_PI_PROVIDER_ACTIVE === '1' || process.env.CLAUDE_MEM_PI_CURATOR_ACTIVE === '1' || process.env.CLAUDE_MEM_INTERNAL_AGENT) {
+      logger.debug('HOOK', 'summarize: skipping internal claude-mem Pi session');
       return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
     }
 

@@ -446,6 +446,7 @@ function runCuratorPi(systemPrompt: string, prompt: string, ctx: ExtensionContex
     const args = [
       "--no-extensions",
       "-e", toolsOnlyExtensionPath,
+      "--no-session",
       ...extraExtensionArgs(),
       ...curatorModelArgs(ctx),
       "--system-prompt", systemPromptPath,
@@ -499,7 +500,11 @@ function runCuratorPi(systemPrompt: string, prompt: string, ctx: ExtensionContex
     try {
       child = spawn("pi", args, {
         cwd: ctx.cwd,
-        env: { ...process.env },
+        env: {
+          ...process.env,
+          CLAUDE_MEM_PI_CURATOR_ACTIVE: "1",
+          CLAUDE_MEM_INTERNAL_AGENT: "pi-curator",
+        },
         stdio: ["ignore", stdoutFd, stderrFd],
       });
     } catch (error) {
