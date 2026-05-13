@@ -35,6 +35,7 @@ When explicitly loaded, the full extension (`pi/index.ts`) provides:
   - `mem_get_observations`
   - `mem_status`
 - `/cmem` command.
+- `/curator` command/menu for curator flags, model, and thinking level.
 - Passive lifecycle capture:
   - `before_agent_start` → session init and curated context injection.
   - `tool_result` → observation capture.
@@ -66,6 +67,8 @@ pi --no-extensions \
   --no-skills \
   --no-builtin-tools \
   --tools read,grep,find,ls,mem_search,mem_timeline,mem_get_observations,mem_status \
+  [--model provider/model] \
+  [--thinking level] \
   -p "<curator prompt>"
 ```
 
@@ -125,6 +128,42 @@ mem_search, mem_timeline, mem_get_observations, mem_status
 
 The curator is intentionally not given `bash`, `edit`, or `write`.
 
+### Curator model and thinking
+
+Current behavior is explicit and configurable:
+
+- `model: auto` — default. The curator subprocess lets Pi choose its model normally; if the parent Pi was started with `--models`, that scope is passed through.
+- `model: current` — inherit the main Pi session's currently selected model.
+- `model: provider/model` — use an explicit model.
+
+Thinking supports:
+
+```text
+auto | inherit | off | minimal | low | medium | high | xhigh
+```
+
+Use the menu:
+
+```text
+/curator
+```
+
+Useful direct commands:
+
+```text
+/curator status
+/curator model auto
+/curator model current
+/curator model anthropic/claude-sonnet-4-5
+/curator thinking inherit
+/curator thinking high
+/curator access readonly
+/curator timeout 180000
+/curator tmux on
+```
+
+The model picker in `/curator` lists Pi-scoped models from `--models` or `enabledModels` settings when available, with all configured available models as fallback.
+
 ### Extra curator extensions / MCP
 
 Additional Pi extensions can be loaded into the curator subprocess with:
@@ -139,9 +178,7 @@ Use this for read-only MCP adapters or other trusted data-source extensions. Avo
 
 The parent extension injects conversation history directly into the curator prompt using `ctx.sessionManager.getEntries()`.
 
-By default this is unlimited: all available session entries are included.
-
-Optional limits:
+By default the curator receives a bounded recent history slice to avoid overflowing the subprocess model context:
 
 ```bash
 CLAUDE_MEM_PI_CURATOR_HISTORY_ENTRIES=30
@@ -149,7 +186,7 @@ CLAUDE_MEM_PI_CURATOR_HISTORY_CHARS=20000
 CLAUDE_MEM_PI_CURATOR_HISTORY_ENTRY_CHARS=3000
 ```
 
-Unset values mean unlimited.
+Set a value to `unlimited` only for short sessions where you explicitly want full history.
 
 ## Toggle memory injection
 
@@ -163,16 +200,19 @@ Ctrl+Alt+M
 
 `Ctrl+Shift+M` is also registered, but many terminals/tmux setups cannot distinguish it reliably.
 
-Slash command:
+Slash commands:
 
 ```text
 /cmem on
 /cmem off
 /cmem toggle
 /cmem
+/curator
+/curator status
 ```
 
 `/cmem` with no arguments shows worker status and whether context injection is on/off.
+`/curator` opens the curator configuration menu in interactive mode; in non-interactive mode use `/curator status` or direct subcommands.
 
 Footer status:
 
@@ -212,15 +252,33 @@ It is a log viewer, not an interactive agent TUI. It shows final JSON and stderr
 | Variable | Default | Description |
 | --- | --- | --- |
 | `CLAUDE_MEM_PI_CURATOR_ACCESS` | `readonly` | `readonly` or `memory`. |
+| `CLAUDE_MEM_PI_CURATOR_MODEL` | `auto` | `auto`, `current`, or explicit `provider/model`. |
+| `CLAUDE_MEM_PI_CURATOR_THINKING` | `auto` | `auto`, `inherit`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. |
 | `CLAUDE_MEM_PI_CURATOR_EXTRA_EXTENSIONS` | empty | Comma-separated extra extension paths for curator. |
-| `CLAUDE_MEM_PI_CURATOR_TIMEOUT_MS` | `30000` | Curator subprocess timeout. |
-| `CLAUDE_MEM_PI_CURATOR_HISTORY_ENTRIES` | unlimited | Max session entries injected into curator prompt. |
-| `CLAUDE_MEM_PI_CURATOR_HISTORY_CHARS` | unlimited | Max total injected history characters. |
-| `CLAUDE_MEM_PI_CURATOR_HISTORY_ENTRY_CHARS` | unlimited | Max characters per injected entry. |
+| `CLAUDE_MEM_PI_CURATOR_TIMEOUT_MS` | `120000` | Curator subprocess timeout. |
+| `CLAUDE_MEM_PI_CURATOR_HISTORY_ENTRIES` | `30` | Max session entries injected into curator prompt; set `unlimited` to disable. |
+| `CLAUDE_MEM_PI_CURATOR_HISTORY_CHARS` | `20000` | Max total injected history characters; set `unlimited` to disable. |
+| `CLAUDE_MEM_PI_CURATOR_HISTORY_ENTRY_CHARS` | `3000` | Max characters per injected entry; set `unlimited` to disable. |
 | `CLAUDE_MEM_PI_CURATOR_TMUX_PANE` | off | Set `1` to open a tmux log pane. |
 | `CLAUDE_MEM_PI_CURATOR_TMUX_TARGET` | `brain:claude-mem` | tmux target for log pane. |
 | `CLAUDE_MEM_PI_CURATOR_TMUX_KEEP_SECONDS` | `20` | Seconds to keep pane open after curator finishes. |
 | `CLAUDE_MEM_PI_DEBUG` | off | Show debug warnings in Pi UI. |
+
+Equivalent Pi CLI extension flags are also registered:
+
+```text
+--cmem-curator-access <readonly|memory>
+--cmem-curator-model <auto|current|provider/model>
+--cmem-curator-thinking <auto|inherit|off|minimal|low|medium|high|xhigh>
+--cmem-curator-timeout-ms <ms>
+--cmem-curator-tmux-pane
+--cmem-curator-tmux-target <target>
+--cmem-curator-tmux-keep-seconds <seconds>
+--cmem-curator-extra-extensions <csv>
+--cmem-curator-history-entries <n|unlimited>
+--cmem-curator-history-chars <n|unlimited>
+--cmem-curator-history-entry-chars <n|unlimited>
+```
 
 ## Files
 
@@ -230,8 +288,8 @@ It is a log viewer, not an interactive agent TUI. It shows final JSON and stderr
 | `pi/tools-only.ts` | Curator-safe tools-only extension. No lifecycle hooks. |
 | `pi/curator.ts` | Background scout/memory curator runner and prompt. |
 | `pi/capture.ts` | Session init, curated injection, observation capture, summarize, read augmentation. |
-| `pi/tools.ts` | Pi memory tools and `/cmem`. |
-| `pi/state.ts` | In-memory injection on/off state and footer status. |
+| `pi/tools.ts` | Pi memory tools plus `/cmem` and `/curator`. |
+| `pi/state.ts` | In-memory injection on/off state, curator settings, and footer status. |
 | `pi/client.ts` | Worker port discovery, health/readiness, autostart, HTTP requests. |
 | `pi/project.ts` | Project root/name resolution. |
 | `pi/session.ts` | Pi session ID and assistant text helpers. |

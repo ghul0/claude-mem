@@ -107,12 +107,18 @@ export async function handleBeforeAgentStart(
 
     if (ctx.hasUI) {
       ctx.ui.setStatus("claude-mem-curator", ctx.ui.theme.fg("warning", "curator: working"));
+      ctx.ui.setWorkingMessage("claude-mem curator: preparing memory context…");
+      ctx.ui.setWorkingVisible(true);
     }
     const curated = await curateMemoryForPrompt(event, ctx, project.root).catch((error) => {
-      notifyDebug(ctx, `claude-mem curator skipped: ${error instanceof Error ? error.message : String(error)}`);
+      const message = `claude-mem curator skipped: ${error instanceof Error ? error.message : String(error)}`;
+      notifyDebug(ctx, message);
       return { empty: true, context: "", observationIds: [] };
     }).finally(() => {
-      if (ctx.hasUI) ctx.ui.setStatus("claude-mem-curator", undefined);
+      if (ctx.hasUI) {
+        ctx.ui.setStatus("claude-mem-curator", undefined);
+        ctx.ui.setWorkingMessage();
+      }
       updateMemoryStatus(ctx);
     });
 
