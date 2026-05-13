@@ -81,6 +81,11 @@ export class SettingsRoutes extends BaseRouteHandler {
       'CLAUDE_MEM_WORKER_HOST',
       'CLAUDE_MEM_PROVIDER',
       'CLAUDE_MEM_CLAUDE_AUTH_METHOD',
+      'CLAUDE_MEM_PI_MODEL',
+      'CLAUDE_MEM_PI_THINKING',
+      'CLAUDE_MEM_PI_TIMEOUT_MS',
+      'CLAUDE_MEM_PI_MAX_CONTEXT_MESSAGES',
+      'CLAUDE_MEM_PI_MAX_TOKENS',
       'CLAUDE_MEM_GEMINI_API_KEY',
       'CLAUDE_MEM_GEMINI_MODEL',
       'CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED',
@@ -134,9 +139,9 @@ export class SettingsRoutes extends BaseRouteHandler {
 
   private validateSettings(settings: any): { valid: boolean; error?: string } {
     if (settings.CLAUDE_MEM_PROVIDER) {
-    const validProviders = ['claude', 'gemini', 'openrouter'];
+    const validProviders = ['claude', 'gemini', 'openrouter', 'pi'];
     if (!validProviders.includes(settings.CLAUDE_MEM_PROVIDER)) {
-      return { valid: false, error: 'CLAUDE_MEM_PROVIDER must be "claude", "gemini", or "openrouter"' };
+      return { valid: false, error: 'CLAUDE_MEM_PROVIDER must be "claude", "gemini", "openrouter", or "pi"' };
       }
     }
 

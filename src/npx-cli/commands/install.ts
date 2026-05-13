@@ -806,7 +806,7 @@ function mergeSettings(updates: Record<string, string>): boolean {
   }
 }
 
-type ProviderId = 'claude' | 'gemini' | 'openrouter';
+type ProviderId = 'claude' | 'gemini' | 'openrouter' | 'pi';
 type ClaudeAccessMode = 'subscription' | 'api-key';
 type ClaudeApiMode = 'direct' | 'gateway';
 // Phase 1d: Persisted DB literals (`server_beta_schema_migrations`, job_type
@@ -1133,6 +1133,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
         { value: 'claude', label: 'Claude Agent SDK (recommended)' },
         { value: 'gemini', label: 'Gemini' },
         { value: 'openrouter', label: 'OpenRouter' },
+        { value: 'pi', label: 'Pi subprocess' },
       ],
       initialValue: initialProvider,
     });
@@ -1146,6 +1147,16 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
   if (selectedProvider === 'claude') {
     await runClaudeAuthFlow();
     return 'claude';
+  }
+
+  if (selectedProvider === 'pi') {
+    const wrote = mergeSettings({
+      CLAUDE_MEM_PROVIDER: 'pi',
+      CLAUDE_MEM_PI_MODEL: getSetting('CLAUDE_MEM_PI_MODEL') || 'openai-codex/gpt-5.4-mini',
+      CLAUDE_MEM_PI_THINKING: getSetting('CLAUDE_MEM_PI_THINKING') || 'minimal',
+    });
+    if (wrote) log.info('Saved provider=pi to ~/.claude-mem/settings.json');
+    return 'pi';
   }
 
   const providerLabel = selectedProvider === 'gemini' ? 'Gemini' : 'OpenRouter';
@@ -1433,7 +1444,7 @@ async function promptCmemOnlineOptIn(version: string): Promise<void> {
 
 export interface InstallOptions {
   ide?: string;
-  provider?: 'claude' | 'gemini' | 'openrouter';
+  provider?: 'claude' | 'gemini' | 'openrouter' | 'pi';
   model?: string;
   noAutoStart?: boolean;
   disableAutoMemory?: boolean;
