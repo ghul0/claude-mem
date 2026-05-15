@@ -9,7 +9,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureWorkerAvailable } from "./client.js";
-import { handleAgentEnd, handleBeforeAgentStart, handleToolResult } from "./capture.js";
+import { handleAgentEnd, handleBeforeAgentStart, handleSessionCompact, handleToolResult } from "./capture.js";
 import { toggleMemoryInjection, updateMemoryStatus } from "./state.js";
 import { registerMemoryCommands, registerMemoryTools } from "./tools.js";
 
@@ -65,6 +65,10 @@ export default function claudeMemExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("before_agent_start", handleBeforeAgentStart);
+
+  pi.on("session_compact", async (_event, ctx) => {
+    await handleSessionCompact(ctx, (message) => pi.sendMessage(message));
+  });
 
   pi.on("tool_result", handleToolResult);
 

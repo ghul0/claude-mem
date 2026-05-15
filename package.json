@@ -13,17 +13,8 @@
     "knowledge-graph",
     "transcript",
     "typescript",
-    "nodejs",
-    "pi-package"
+    "nodejs"
   ],
-  "pi": {
-    "extensions": [
-      "./pi/index.ts"
-    ],
-    "skills": [
-      "./pi/skills"
-    ]
-  },
   "author": "Alex Newman",
   "license": "Apache-2.0",
   "repository": {

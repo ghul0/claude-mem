@@ -8,12 +8,15 @@ import type {
   ToolResultEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { workerRequest } from "./client.js";
-import { curateMemoryForPrompt } from "./curator.js";
 import { getProjectInfo } from "./project.js";
 import { getContentSessionId, getLastAssistantText } from "./session.js";
 import { isMemoryInjectionEnabled, updateMemoryStatus } from "./state.js";
 
 const PLATFORM_SOURCE = "pi";
+const PROJECT_CONTEXT_CUSTOM_TYPE = "claude-mem-project-context";
+
+type ProjectContextMessage = NonNullable<BeforeAgentStartEventResult["message"]>;
+type ProjectContextReason = "session-start" | "compact";
 
 interface SessionInitResponse {
   sessionDbId?: number;
@@ -49,6 +52,62 @@ function getReadPath(event: ToolResultEvent): string | undefined {
   const input = event.input as Record<string, unknown>;
   const value = input.path ?? input.file_path ?? input.filePath;
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function hasFreshProjectContext(ctx: ExtensionContext): boolean {
+  let entries: unknown[] = [];
+  try {
+    entries = ctx.sessionManager.getBranch?.() ?? ctx.sessionManager.getEntries?.() ?? [];
+  } catch {
+    return false;
+  }
+
+  let seenAfterLatestCompact = false;
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    if (record.type === "compaction") {
+      seenAfterLatestCompact = false;
+      continue;
+    }
+    if (record.type === "custom_message" && record.customType === PROJECT_CONTEXT_CUSTOM_TYPE) {
+      seenAfterLatestCompact = true;
+    }
+  }
+
+  return seenAfterLatestCompact;
+}
+
+async function fetchProjectContext(projectRoot: string): Promise<string> {
+  const context = await workerRequest<string>("/api/context/inject", {
+    query: { project: projectRoot },
+    timeoutMs: 15_000,
+  });
+
+  return typeof context === "string" ? context.trim() : "";
+}
+
+async function buildProjectContextMessage(
+  ctx: ExtensionContext,
+  reason: ProjectContextReason,
+  details: Record<string, unknown> = {},
+): Promise<ProjectContextMessage | undefined> {
+  const project = getProjectInfo(ctx.cwd);
+  const context = await fetchProjectContext(project.root);
+  if (!context) return undefined;
+
+  return {
+    customType: PROJECT_CONTEXT_CUSTOM_TYPE,
+    content: context,
+    display: true,
+    details: {
+      contentSessionId: getContentSessionId(ctx),
+      project: project.root,
+      projectName: project.name,
+      reason,
+      ...details,
+    },
+  };
 }
 
 function formatFileObservations(payload: unknown): string {
@@ -103,45 +162,50 @@ export async function handleBeforeAgentStart(
       timeoutMs: 15_000,
     });
 
-    if (init?.skipped || !isMemoryInjectionEnabled()) return undefined;
+    if (init?.skipped || !isMemoryInjectionEnabled() || hasFreshProjectContext(ctx)) return undefined;
 
     if (ctx.hasUI) {
-      ctx.ui.setStatus("claude-mem-curator", ctx.ui.theme.fg("warning", "curator: working"));
-      ctx.ui.setWorkingMessage("claude-mem curator: preparing memory context…");
+      ctx.ui.setStatus("claude-mem-context", ctx.ui.theme.fg("warning", "mem: loading project facts"));
+      ctx.ui.setWorkingMessage("claude-mem: loading project memory context…");
       ctx.ui.setWorkingVisible(true);
     }
-    const curated = await curateMemoryForPrompt(event, ctx, project.root).catch((error) => {
-      const message = `claude-mem curator skipped: ${error instanceof Error ? error.message : String(error)}`;
-      notifyDebug(ctx, message);
-      return { empty: true, context: "", observationIds: [] };
-    }).finally(() => {
+
+    try {
+      const message = await buildProjectContextMessage(ctx, "session-start", {
+        promptNumber: init?.promptNumber,
+        sessionDbId: init?.sessionDbId,
+      });
+      return message ? { message } : undefined;
+    } finally {
       if (ctx.hasUI) {
-        ctx.ui.setStatus("claude-mem-curator", undefined);
+        ctx.ui.setStatus("claude-mem-context", undefined);
         ctx.ui.setWorkingMessage();
       }
       updateMemoryStatus(ctx);
-    });
-
-    if (curated.empty || !curated.context) return undefined;
-
-    return {
-      message: {
-        customType: "claude-mem-curated-context",
-        content: curated.context,
-        display: true,
-        details: {
-          contentSessionId,
-          project: project.root,
-          projectName: project.name,
-          promptNumber: init?.promptNumber,
-          sessionDbId: init?.sessionDbId,
-          observationIds: curated.observationIds,
-        },
-      },
-    };
+    }
   } catch (error) {
     notifyDebug(ctx, `claude-mem passive capture skipped: ${error instanceof Error ? error.message : String(error)}`);
     return undefined;
+  }
+}
+
+export async function handleSessionCompact(
+  ctx: ExtensionContext,
+  sendMessage: (message: ProjectContextMessage) => void,
+): Promise<void> {
+  if (!isMemoryInjectionEnabled()) return;
+
+  try {
+    if (ctx.hasUI) {
+      ctx.ui.setStatus("claude-mem-context", ctx.ui.theme.fg("warning", "mem: refreshing facts"));
+    }
+    const message = await buildProjectContextMessage(ctx, "compact");
+    if (message) sendMessage(message);
+  } catch (error) {
+    notifyDebug(ctx, `claude-mem compact context skipped: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    if (ctx.hasUI) ctx.ui.setStatus("claude-mem-context", undefined);
+    updateMemoryStatus(ctx);
   }
 }
 

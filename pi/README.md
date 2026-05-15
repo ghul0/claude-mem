@@ -1,32 +1,29 @@
 # claude-mem for Pi
 
-Native Pi integration for claude-mem. The integration is intentionally **explicit opt-in**: claude-mem does not change normal Pi behavior unless you load the extension for a run.
+Native Pi integration for claude-mem. The integration is intentionally opt-in: normal `pi` should stay lean; load claude-mem only through the `pi-mem` / `pi-brain` aliases or an explicit `-e` flag.
 
-## Quick start
+## Recommended local aliases
 
-From this repository during development:
-
-```bash
-pi --no-extensions -e /home/nixen/tools/claude-mem
-```
-
-or load the extension file directly:
+`pi-mem` = Pi + claude-mem + MCP adapter.
 
 ```bash
-pi --no-extensions -e /home/nixen/tools/claude-mem/pi/index.ts
+pi -e /home/nixen/tools/claude-mem/pi/index.ts \
+   -e /home/nixen/.npm-global/lib/node_modules/pi-mcp-adapter "$@"
 ```
 
-For a one-shot prompt:
+`pi-brain` = Pi + claude-mem + Open Brain + MCP adapter.
 
 ```bash
-pi --no-extensions -e /home/nixen/tools/claude-mem -p "your task"
+pi -e /home/nixen/tools/claude-mem/pi/index.ts \
+   -e ~/.pi/extensions/openbrain/index.ts \
+   -e /home/nixen/.npm-global/lib/node_modules/pi-mcp-adapter "$@"
 ```
 
-`--no-extensions` is recommended when you want to make the opt-in explicit and avoid unrelated installed extensions.
+If you need a non-local path, replace the extension paths with your installed package locations.
 
 ## What the extension does
 
-When explicitly loaded, the full extension (`pi/index.ts`) provides:
+When loaded, `pi/index.ts` provides:
 
 - Worker discovery/startup and status footer.
 - Memory tools:
@@ -34,250 +31,74 @@ When explicitly loaded, the full extension (`pi/index.ts`) provides:
   - `mem_timeline`
   - `mem_get_observations`
   - `mem_status`
-- `/cmem` command.
-- `/curator` command/menu for curator flags, model, and thinking level.
+- `/cmem` command for status and toggling context injection.
 - Passive lifecycle capture:
-  - `before_agent_start` → session init and curated context injection.
+  - `before_agent_start` → session init and project context injection.
   - `tool_result` → observation capture.
   - `agent_end` → session summary.
 - Read-result augmentation for relevant file history.
-- Background scout/memory curator before the main agent starts work.
+- `session_compact` → refresh project facts after every Pi compaction.
 
-## Explicit opt-in architecture
+There is no background curator/sub-agent in the default Pi integration. Context injection mirrors claude-mem for Claude Code: load project memory at conversation start and refresh it after compaction.
 
-The package keeps a Pi manifest so a package root can be loaded:
+## Context injection behavior
 
-```bash
-pi -e /path/to/claude-mem
-```
+- On the first agent turn in a session, claude-mem fetches `/api/context/inject` for the current project and injects it as a custom Pi message.
+- After each `/compact` or auto-compaction, claude-mem injects a fresh project context message again.
+- The injected custom message is stored in the Pi session and participates in LLM context.
+- Repeated prompts do not reinject the same project context unless a later compaction happens.
 
-But the recommended mode is still explicit per run. If you do not load the extension with `-e/--extension`, Pi runs normally without claude-mem lifecycle hooks.
-
-## Background curator
-
-Before the main agent starts, `pi/capture.ts` calls the curator in `pi/curator.ts`.
-
-The curator is a separate Pi subprocess launched with the tools-only extension:
-
-```bash
-pi --no-extensions \
-  -e ./pi/tools-only.ts \
-  --no-session \
-  --no-context-files \
-  --no-skills \
-  --no-builtin-tools \
-  --tools read,grep,find,ls,mem_search,mem_timeline,mem_get_observations,mem_status \
-  [--model provider/model] \
-  [--thinking level] \
-  -p "<curator prompt>"
-```
-
-This avoids recursion: the curator does **not** load the full claude-mem lifecycle extension.
-
-### Curator responsibilities
-
-The curator is a scout + memory agent. It receives:
-
-- the current user prompt,
-- the current project/cwd,
-- the current conversation history injected by the parent extension,
-- read-only project tools,
-- claude-mem memory tools.
-
-It must return JSON containing either an empty result or a markdown context block:
-
-```json
-{
-  "empty": false,
-  "context": "## claude-mem curated task context\n\n- [#123] verified fact...",
-  "observationIds": [123]
-}
-```
-
-The main agent receives the `context` as a custom Pi message with type:
-
-```text
-claude-mem-curated-context
-```
-
-### Curator access levels
-
-Default access is read-only research mode:
-
-```bash
-CLAUDE_MEM_PI_CURATOR_ACCESS=readonly
-```
-
-Tools:
-
-```text
-read, grep, find, ls, mem_search, mem_timeline, mem_get_observations, mem_status
-```
-
-Memory-only mode:
-
-```bash
-CLAUDE_MEM_PI_CURATOR_ACCESS=memory
-```
-
-Tools:
-
-```text
-mem_search, mem_timeline, mem_get_observations, mem_status
-```
-
-The curator is intentionally not given `bash`, `edit`, or `write`.
-
-### Curator model and thinking
-
-Current behavior is explicit and configurable:
-
-- `model: auto` — default. The curator subprocess lets Pi choose its model normally; if the parent Pi was started with `--models`, that scope is passed through.
-- `model: current` — inherit the main Pi session's currently selected model.
-- `model: provider/model` — use an explicit model.
-
-Thinking supports:
-
-```text
-auto | inherit | off | minimal | low | medium | high | xhigh
-```
-
-Use the menu:
-
-```text
-/curator
-```
-
-Useful direct commands:
-
-```text
-/curator status
-/curator model auto
-/curator model current
-/curator model anthropic/claude-sonnet-4-5
-/curator thinking inherit
-/curator thinking high
-/curator access readonly
-/curator timeout 180000
-/curator tmux on
-```
-
-The model picker in `/curator` lists Pi-scoped models from `--models` or `enabledModels` settings when available, with all configured available models as fallback.
-
-### Extra curator extensions / MCP
-
-Additional Pi extensions can be loaded into the curator subprocess with:
-
-```bash
-CLAUDE_MEM_PI_CURATOR_EXTRA_EXTENSIONS=/path/to/ext1.ts,/path/to/ext2.ts
-```
-
-Use this for read-only MCP adapters or other trusted data-source extensions. Avoid loading the full claude-mem lifecycle extension here, otherwise recursion may occur.
-
-## Conversation history injection
-
-The parent extension injects conversation history directly into the curator prompt using `ctx.sessionManager.getEntries()`.
-
-By default the curator receives a bounded recent history slice to avoid overflowing the subprocess model context:
-
-```bash
-CLAUDE_MEM_PI_CURATOR_HISTORY_ENTRIES=30
-CLAUDE_MEM_PI_CURATOR_HISTORY_CHARS=20000
-CLAUDE_MEM_PI_CURATOR_HISTORY_ENTRY_CHARS=3000
-```
-
-Set a value to `unlimited` only for short sessions where you explicitly want full history.
-
-## Toggle memory injection
-
-The extension can capture memory while disabling context injection.
-
-Keyboard shortcut:
-
-```text
-Ctrl+Alt+M
-```
-
-`Ctrl+Shift+M` is also registered, but many terminals/tmux setups cannot distinguish it reliably.
-
-Slash commands:
+Toggle injection without disabling capture:
 
 ```text
 /cmem on
 /cmem off
 /cmem toggle
 /cmem
-/curator
-/curator status
 ```
 
-`/cmem` with no arguments shows worker status and whether context injection is on/off.
-`/curator` opens the curator configuration menu in interactive mode; in non-interactive mode use `/curator status` or direct subcommands.
+Keyboard shortcuts:
+
+```text
+Ctrl+Alt+M
+Ctrl+Shift+M
+```
 
 Footer status:
 
 ```text
 mem: on
 mem: off
-curator: working
 ```
 
-## Curator tmux observability
+## MCP adapter
 
-To open a read-only tmux pane showing curator stdout/stderr:
-
-```bash
-CLAUDE_MEM_PI_CURATOR_TMUX_PANE=1 \
-CLAUDE_MEM_PI_CURATOR_TMUX_KEEP_SECONDS=20 \
-pi --no-extensions -e /home/nixen/tools/claude-mem -p "your task"
-```
-
-Optional target:
-
-```bash
-CLAUDE_MEM_PI_CURATOR_TMUX_TARGET=brain:claude-mem
-```
-
-The pane tails temp files like:
+Use `pi-mcp-adapter` in the aliases when you want Pi MCP access. The adapter reads `~/.pi/agent/mcp.json` by default. A minimal claude-mem MCP entry can point at:
 
 ```text
-/tmp/claude-mem-pi-curator-*/stdout.txt
-/tmp/claude-mem-pi-curator-*/stderr.txt
+/home/nixen/tools/claude-mem/plugin/scripts/mcp-server.cjs
 ```
 
-It is a log viewer, not an interactive agent TUI. It shows final JSON and stderr warnings, not a full live Pi conversation transcript.
+The claude-mem native Pi tools are still the preferred memory search surface, but the MCP server remains available for workflows that expect MCP.
 
-## Environment reference
+## Explicit one-off loading
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `CLAUDE_MEM_PI_CURATOR_ACCESS` | `readonly` | `readonly` or `memory`. |
-| `CLAUDE_MEM_PI_CURATOR_MODEL` | `auto` | `auto`, `current`, or explicit `provider/model`. |
-| `CLAUDE_MEM_PI_CURATOR_THINKING` | `auto` | `auto`, `inherit`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. |
-| `CLAUDE_MEM_PI_CURATOR_EXTRA_EXTENSIONS` | empty | Comma-separated extra extension paths for curator. |
-| `CLAUDE_MEM_PI_CURATOR_TIMEOUT_MS` | `120000` | Curator subprocess timeout. |
-| `CLAUDE_MEM_PI_CURATOR_HISTORY_ENTRIES` | `30` | Max session entries injected into curator prompt; set `unlimited` to disable. |
-| `CLAUDE_MEM_PI_CURATOR_HISTORY_CHARS` | `20000` | Max total injected history characters; set `unlimited` to disable. |
-| `CLAUDE_MEM_PI_CURATOR_HISTORY_ENTRY_CHARS` | `3000` | Max characters per injected entry; set `unlimited` to disable. |
-| `CLAUDE_MEM_PI_CURATOR_TMUX_PANE` | off | Set `1` to open a tmux log pane. |
-| `CLAUDE_MEM_PI_CURATOR_TMUX_TARGET` | `brain:claude-mem` | tmux target for log pane. |
-| `CLAUDE_MEM_PI_CURATOR_TMUX_KEEP_SECONDS` | `20` | Seconds to keep pane open after curator finishes. |
-| `CLAUDE_MEM_PI_DEBUG` | off | Show debug warnings in Pi UI. |
+Development run from this repository:
 
-Equivalent Pi CLI extension flags are also registered:
+```bash
+pi -e ./pi/index.ts
+```
 
-```text
---cmem-curator-access <readonly|memory>
---cmem-curator-model <auto|current|provider/model>
---cmem-curator-thinking <auto|inherit|off|minimal|low|medium|high|xhigh>
---cmem-curator-timeout-ms <ms>
---cmem-curator-tmux-pane
---cmem-curator-tmux-target <target>
---cmem-curator-tmux-keep-seconds <seconds>
---cmem-curator-extra-extensions <csv>
---cmem-curator-history-entries <n|unlimited>
---cmem-curator-history-chars <n|unlimited>
---cmem-curator-history-entry-chars <n|unlimited>
+One-shot prompt:
+
+```bash
+pi -e ./pi/index.ts -p "your task"
+```
+
+Tools-only memory search without lifecycle capture:
+
+```bash
+pi -e ./pi/tools-only.ts --no-builtin-tools --tools mem_search,mem_timeline,mem_get_observations,mem_status
 ```
 
 ## Files
@@ -285,11 +106,10 @@ Equivalent Pi CLI extension flags are also registered:
 | File | Purpose |
 | --- | --- |
 | `pi/index.ts` | Full explicit extension: tools, lifecycle, status, shortcuts. |
-| `pi/tools-only.ts` | Curator-safe tools-only extension. No lifecycle hooks. |
-| `pi/curator.ts` | Background scout/memory curator runner and prompt. |
-| `pi/capture.ts` | Session init, curated injection, observation capture, summarize, read augmentation. |
-| `pi/tools.ts` | Pi memory tools plus `/cmem` and `/curator`. |
-| `pi/state.ts` | In-memory injection on/off state, curator settings, and footer status. |
+| `pi/tools-only.ts` | Tools-only extension. No lifecycle hooks. |
+| `pi/capture.ts` | Session init, project context injection, observation capture, summarize, read augmentation. |
+| `pi/tools.ts` | Pi memory tools plus `/cmem`. |
+| `pi/state.ts` | In-memory injection on/off state and footer status. |
 | `pi/client.ts` | Worker port discovery, health/readiness, autostart, HTTP requests. |
 | `pi/project.ts` | Project root/name resolution. |
 | `pi/session.ts` | Pi session ID and assistant text helpers. |
@@ -300,27 +120,7 @@ Equivalent Pi CLI extension flags are also registered:
 Basic import smoke:
 
 ```bash
-bun -e 'import("./pi/index.ts").then(()=>import("./pi/tools-only.ts")).then(()=>import("./pi/curator.ts")).then(()=>console.log("ok"))'
-```
-
-Explicit extension load:
-
-```bash
-pi --no-extensions -e ./pi/index.ts --offline --no-session --no-skills --no-context-files -p "load test"
-```
-
-Tools-only load:
-
-```bash
-pi --no-extensions -e ./pi/tools-only.ts --offline --no-session --no-skills --no-context-files --no-builtin-tools --tools mem_status -p "status"
-```
-
-Curator with tmux pane:
-
-```bash
-CLAUDE_MEM_PI_CURATOR_TMUX_PANE=1 \
-CLAUDE_MEM_PI_CURATOR_TMUX_KEEP_SECONDS=20 \
-pi --no-extensions -e ./pi/index.ts -p "test curator"
+bun -e 'import("./pi/index.ts").then(()=>import("./pi/tools-only.ts")).then(()=>console.log("ok"))'
 ```
 
 Build/package checks:
@@ -330,11 +130,3 @@ npm run build
 git diff --check
 npm pack --dry-run --json
 ```
-
-## Notes and limitations
-
-- Curator tmux pane currently tails stdout/stderr only; it is not a full interactive Pi UI.
-- Full transcript-style curator viewing would require saving and pretty-printing a curator session JSONL instead of using `--no-session`.
-- `Ctrl+Shift+M` may not work in many terminal/tmux setups; use `Ctrl+Alt+M` or `/cmem toggle`.
-- Curator can be expensive/slow if unlimited conversation history is large. Use history env limits if needed.
-- The curator intentionally has no write access.
