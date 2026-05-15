@@ -18,6 +18,7 @@ import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource, sortPlatformSources }
 import { findRecentDuplicateUserPrompt as findRecentDuplicateUserPromptRecord } from './prompts/get.js';
 import { normalizeStoredPromptText } from './prompt-storage.js';
 import { applySqliteConnectionPragmas } from './connection.js';
+import { MigrationRunner } from './migrations/runner.js';
 
 interface IndexColumnInfo {
   seqno: number;
@@ -81,6 +82,7 @@ export class SessionStore {
     applySqliteConnectionPragmas(this.db);
 
     this.initializeSchema();
+    new MigrationRunner(this.db).runAllMigrations();
 
     this.ensureWorkerPortColumn();
     this.ensurePromptTrackingColumns();

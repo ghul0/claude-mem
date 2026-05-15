@@ -12,6 +12,10 @@ import { updateFolderClaudeMdFiles } from '../../../utils/claude-md-utils.js';
 import { getWorkerPort } from '../../../shared/worker-utils.js';
 import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../../shared/paths.js';
+import {
+  isReconciliationEnabled,
+  persistReconciliationEvidenceAndJobs
+} from '../../sqlite/reconciliation/index.js';
 import type { ActiveSession } from '../../worker-types.js';
 import type { DatabaseManager } from '../DatabaseManager.js';
 import type { SessionManager } from '../SessionManager.js';
@@ -138,10 +142,39 @@ export async function processAgentResponse(
     session.pendingAgentType = null;
   }
 
-  logger.info('DB', `STORED | sessionDbId=${session.sessionDbId} | memorySessionId=${session.memorySessionId} | obsCount=${result.observationIds.length} | obsIds=[${result.observationIds.join(',')}] | summaryId=${result.summaryId || 'none'}`, {
+  logger.info('DB', `STORED | sessionDbId=${session.sessionDbId} | memorySessionId=${session.memorySessionId} | obsCount=${result.observationIds.length} | insertedCount=${result.insertedIds.length} | obsIds=[${result.observationIds.join(',')}] | summaryId=${result.summaryId || 'none'}`, {
     sessionId: session.sessionDbId,
     memorySessionId: session.memorySessionId
   });
+
+  if (isReconciliationEnabled() && result.insertedIds.length > 0) {
+    try {
+      const userPrompt = sessionStore.getUserPrompt(session.contentSessionId, session.lastPromptNumber);
+      const lastAssistantMessage = text || null;
+      const reconcilePersistResult = persistReconciliationEvidenceAndJobs({
+        db: sessionStore.db,
+        observations: labeledObservations,
+        observationIds: result.observationIds,
+        insertedIds: result.insertedIds,
+        project: session.project,
+        contentSessionId: session.contentSessionId,
+        platformSource: session.platformSource,
+        promptNumber: session.lastPromptNumber,
+        userPrompt,
+        assistantMessage: lastAssistantMessage,
+        toolTrace: []
+      });
+      if (reconcilePersistResult.jobsEnqueued > 0 || reconcilePersistResult.evidenceStored > 0) {
+        logger.debug('RECONCILE', `Reconciliation evidence captured | sessionDbId=${session.sessionDbId} | evidenceStored=${reconcilePersistResult.evidenceStored} | jobsEnqueued=${reconcilePersistResult.jobsEnqueued}`, {
+          sessionId: session.sessionDbId
+        });
+      }
+    } catch (error) {
+      logger.warn('RECONCILE', 'Failed to persist reconciliation evidence (non-fatal)', {
+        sessionDbId: session.sessionDbId
+      }, error instanceof Error ? error : new Error(String(error)));
+    }
+  }
 
   session.lastSummaryStored = result.summaryId !== null;
 

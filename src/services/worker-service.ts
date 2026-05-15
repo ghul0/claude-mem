@@ -102,6 +102,8 @@ import { SearchRoutes } from './worker/http/routes/SearchRoutes.js';
 import { SettingsRoutes } from './worker/http/routes/SettingsRoutes.js';
 import { LogsRoutes } from './worker/http/routes/LogsRoutes.js';
 import { MemoryRoutes } from './worker/http/routes/MemoryRoutes.js';
+import { ReconciliationRoutes } from './worker/http/routes/ReconciliationRoutes.js';
+import { ReconcileWorker } from './sqlite/reconciliation/reconciler-worker.js';
 import { CorpusRoutes } from './worker/http/routes/CorpusRoutes.js';
 import { ChromaRoutes } from './worker/http/routes/ChromaRoutes.js';
 import { CloudSyncRoutes } from './worker/http/routes/CloudSyncRoutes.js';
@@ -222,6 +224,7 @@ export class WorkerService implements WorkerRef {
 
   private chromaMcpManager: ChromaMcpManager | null = null;
   private transcriptWatcher: TranscriptWatcher | null = null;
+  private reconcileWorker: ReconcileWorker | null = null;
   private initializationComplete: Promise<void>;
   private resolveInitialization!: () => void;
 
@@ -361,6 +364,23 @@ export class WorkerService implements WorkerRef {
     this.server.registerRoutes(new SettingsRoutes(this.settingsManager));
     this.server.registerRoutes(new LogsRoutes());
     this.server.registerRoutes(new MemoryRoutes(this.dbManager, 'claude-mem'));
+    this.server.registerRoutes(new ReconciliationRoutes(this.dbManager));
+
+    this.reconcileWorker = new ReconcileWorker(
+      () => {
+        try {
+          return this.dbManager.getConnection() ?? null;
+        } catch {
+          return null;
+        }
+      }
+    );
+    void (async () => {
+      const { createReconciliationCallerFromSettings } = await import('./sqlite/reconciliation/llm-caller.js');
+      const caller = await createReconciliationCallerFromSettings();
+      this.reconcileWorker?.setCaller(caller);
+    })();
+    this.reconcileWorker.start();
     this.server.registerRoutes(new ServerV1Routes({
       getDatabase: () => this.dbManager.getConnection(),
     }));
@@ -744,6 +764,10 @@ export class WorkerService implements WorkerRef {
       isShuttingDown: () => this.isShuttingDown,
       markShuttingDown: () => { this.isShuttingDown = true; },
       beforeGracefulShutdown: async () => {
+        if (this.reconcileWorker) {
+          this.reconcileWorker.stop();
+          this.reconcileWorker = null;
+        }
         if (this.transcriptWatcher) {
           this.transcriptWatcher.stop();
           this.transcriptWatcher = null;

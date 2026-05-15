@@ -46,6 +46,7 @@ export type SSEEventPayload =
 
 export interface StorageResult {
   observationIds: number[];
+  insertedIds: number[];
   summaryId: number | null;
   createdAtEpoch: number;
 }

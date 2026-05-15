@@ -100,6 +100,23 @@ export interface SettingsDefaults {
   CLAUDE_MEM_SERVER_BETA_URL: string;
   CLAUDE_MEM_SERVER_BETA_API_KEY: string;
   CLAUDE_MEM_SERVER_BETA_PROJECT_ID: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_ENABLED: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_APPLY: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_MAX_PROJECT_OBS: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_VECTOR_TOP_K: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_DETERMINISTIC_RECENT_LIMIT: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_DETERMINISTIC_TOP: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_CANDIDATE_CHUNK_SIZE: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_MAX_CANDIDATES: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_FULL_SCAN_LLM: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_MIN_APPLY_CONFIDENCE: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_MIN_WEAK_CONFIDENCE: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_MIN_TERMINAL_EVIDENCE_CHARS: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_MODEL: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_SELECTOR_MODEL: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_CLASSIFIER_MODEL: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_DAILY_BUDGET_USD: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_KILL_SWITCH: string;
 }
 
 export class SettingsDefaultsManager {
@@ -197,6 +214,23 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_SERVER_BETA_URL: `http://127.0.0.1:${process.env.CLAUDE_MEM_SERVER_PORT ?? String(37877 + ((process.getuid?.() ?? 77) % 100))}`,  // Legacy server-beta runtime URL — UID-derived for multi-account isolation
     CLAUDE_MEM_SERVER_BETA_API_KEY: '',                     // Legacy local hook API key (read as fallback when CLAUDE_MEM_SERVER_API_KEY unset)
     CLAUDE_MEM_SERVER_BETA_PROJECT_ID: '',                  // Legacy Postgres project_id (read as fallback when CLAUDE_MEM_SERVER_PROJECT_ID unset)
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_ENABLED: 'false',                  // Master flag for observation truth-maintenance feature
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_APPLY: 'false',                    // When master+apply: actually mutate observation lifecycle statuses
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_MAX_PROJECT_OBS: '5000',           // Skip reconcile if project active observation count exceeds this
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_VECTOR_TOP_K: '200',               // Chroma/vector top-K prefilter for candidate pool
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_DETERMINISTIC_RECENT_LIMIT: '200', // Recency window for deterministic scoring
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_DETERMINISTIC_TOP: '200',          // Hard cap on deterministic-overlap pool size
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_CANDIDATE_CHUNK_SIZE: '200',       // Chunk size for selector LLM batches
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_MAX_CANDIDATES: '40',              // Max candidate IDs passed to final classifier
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_FULL_SCAN_LLM: 'false',            // Expensive mode: chunk every project observation through LLM
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_MIN_APPLY_CONFIDENCE: '0.90',      // Confidence threshold for terminal status application
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_MIN_WEAK_CONFIDENCE: '0.65',       // Confidence threshold for weak status application
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_MIN_TERMINAL_EVIDENCE_CHARS: '40', // Min evidence text length for terminal status
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_MODEL: '',                         // Reconciliation model (selector+classifier); empty = skip jobs
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_SELECTOR_MODEL: '',                // Override selector role model; empty = use _MODEL
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_CLASSIFIER_MODEL: '',              // Override classifier role model; empty = use _MODEL
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_DAILY_BUDGET_USD: '0',             // Daily USD budget cap; 0 = unlimited; jobs skip when exceeded
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_KILL_SWITCH: 'false',              // Global kill-switch: when true, halt all reconcile jobs without disabling master flag
   };
 
   static getAllDefaults(): SettingsDefaults {
