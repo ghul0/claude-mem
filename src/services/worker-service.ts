@@ -8,7 +8,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { getWorkerPort, getWorkerHost, fetchWithTimeout, resolveWorkerScriptPath } from '../shared/worker-utils.js';
 import { getCurrentWorkerPid, verifyRestartedWorker } from './restart-verify.js';
 import { runShutdownSequence, type WorkerShutdownReason } from './worker-shutdown.js';
-import { DATA_DIR, DB_PATH, ensureDir } from '../shared/paths.js';
+import { DATA_DIR, DB_PATH, USER_SETTINGS_PATH, ensureDir } from '../shared/paths.js';
 import { HOOK_TIMEOUTS } from '../shared/hook-constants.js';
 import { getUptimeSeconds } from '../shared/uptime.js';
 import { SettingsDefaultsManager } from '../shared/SettingsDefaultsManager.js';
@@ -239,6 +239,10 @@ export class WorkerService implements WorkerRef {
     this.initializationComplete = new Promise((resolve) => {
       this.resolveInitialization = resolve;
     });
+
+    SettingsDefaultsManager.applyToProcessEnv(
+      SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH)
+    );
 
     this.dbManager = new DatabaseManager();
     this.sessionManager = new SessionManager(this.dbManager);
