@@ -82,7 +82,6 @@ export class SessionStore {
     applySqliteConnectionPragmas(this.db);
 
     this.initializeSchema();
-    new MigrationRunner(this.db).runAllMigrations();
 
     this.ensureWorkerPortColumn();
     this.ensurePromptTrackingColumns();
@@ -111,6 +110,7 @@ export class SessionStore {
     this.ensurePendingMessagesSessionToolUniqueIndex();
     this.ensureSyncedAtColumns(options.cloudSyncStatePath ?? paths.cloudSyncState());
     this.requeuePromptCloudSyncAfterMapperFix();
+    new MigrationRunner(this.db).runAllMigrations();
   }
 
   private getIndexColumns(indexName: string): string[] {

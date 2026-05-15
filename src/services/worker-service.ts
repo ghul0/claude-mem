@@ -472,6 +472,7 @@ export class WorkerService implements WorkerRef {
       const { USER_SETTINGS_PATH } = await import('../shared/paths.js');
 
       const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+      SettingsDefaultsManager.applyToProcessEnv(settings);
 
       const modeId = settings.CLAUDE_MEM_MODE;
       ModeManager.getInstance().loadMode(modeId);

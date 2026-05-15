@@ -256,6 +256,14 @@ export class SettingsDefaultsManager {
     return result;
   }
 
+  static applyToProcessEnv(settings: SettingsDefaults): void {
+    for (const key of Object.keys(this.DEFAULTS) as Array<keyof SettingsDefaults>) {
+      if (process.env[key] === undefined && settings[key] !== undefined) {
+        process.env[key] = String(settings[key]);
+      }
+    }
+  }
+
   static loadFromFile(settingsPath: string, applyEnvOverrides = true): SettingsDefaults {
     try {
       if (!existsSync(settingsPath)) {
