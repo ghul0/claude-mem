@@ -221,10 +221,12 @@ export class WorkerService implements WorkerRef {
   private corpusStore: CorpusStore;
 
   private searchRoutes: SearchRoutes | null = null;
+  private sessionRoutes: SessionRoutes | null = null;
 
   private chromaMcpManager: ChromaMcpManager | null = null;
   private transcriptWatcher: TranscriptWatcher | null = null;
   private reconcileWorker: ReconcileWorker | null = null;
+  private orphanResumeTimer: ReturnType<typeof setInterval> | null = null;
   private initializationComplete: Promise<void>;
   private resolveInitialization!: () => void;
 
@@ -284,12 +286,20 @@ export class WorkerService implements WorkerRef {
       workerPath: __filename,
       getAiStatus: () => {
         let provider = 'claude';
-        if (isPiSelected() && isPiAvailable()) provider = 'pi';
-        else if (isOpenRouterSelected() && isOpenRouterAvailable()) provider = 'openrouter';
-        else if (isGeminiSelected() && isGeminiAvailable()) provider = 'gemini';
+        let authMethod = getAuthMethodDescription();
+        if (isPiSelected() && isPiAvailable()) {
+          provider = 'pi';
+          authMethod = 'Pi subprocess';
+        } else if (isOpenRouterSelected() && isOpenRouterAvailable()) {
+          provider = 'openrouter';
+          authMethod = 'OpenRouter API key';
+        } else if (isGeminiSelected() && isGeminiAvailable()) {
+          provider = 'gemini';
+          authMethod = 'Gemini API key';
+        }
         return {
           provider,
-          authMethod: isPiSelected() && isPiAvailable() ? 'Pi subprocess' : getAuthMethodDescription(),
+          authMethod,
           lastInteraction: this.lastAiInteraction
             ? {
                 timestamp: this.lastAiInteraction.timestamp,
@@ -359,10 +369,10 @@ export class WorkerService implements WorkerRef {
     });
 
     this.server.registerRoutes(new ViewerRoutes(this.sseBroadcaster, this.dbManager, this.sessionManager));
-    const sessionRoutes = new SessionRoutes(this.sessionManager, this.dbManager, this.sdkAgent, this.geminiAgent, this.openRouterAgent, this.piAgent, this.sessionEventBroadcaster, this, this.completionHandler);
-    this.server.registerRoutes(sessionRoutes);
+    this.sessionRoutes = new SessionRoutes(this.sessionManager, this.dbManager, this.sdkAgent, this.geminiAgent, this.openRouterAgent, this.piAgent, this.sessionEventBroadcaster, this, this.completionHandler);
+    this.server.registerRoutes(this.sessionRoutes);
     attachIngestGeneratorStarter((sessionDbId, source) =>
-      sessionRoutes.ensureGeneratorRunning(sessionDbId, source),
+      this.sessionRoutes!.ensureGeneratorRunning(sessionDbId, source),
     );
     this.server.registerRoutes(new DataRoutes(this.paginationHelper, this.dbManager, this.sessionManager, this.sseBroadcaster, this, this.startTime));
     this.server.registerRoutes(new SettingsRoutes(this.settingsManager));
@@ -377,6 +387,9 @@ export class WorkerService implements WorkerRef {
         } catch {
           return null;
         }
+      },
+      {
+        concurrency: SettingsDefaultsManager.getInt('CLAUDE_MEM_OBSERVATION_RECONCILIATION_CONCURRENCY')
       }
     );
     void (async () => {
@@ -624,6 +637,9 @@ export class WorkerService implements WorkerRef {
         logger.error('SYSTEM', 'Telemetry historical backfill failed (non-blocking)', {}, error as Error);
       });
 
+      this.resumeOrphanSessions();
+      this.orphanResumeTimer = setInterval(() => this.resumeOrphanSessions(), 60_000);
+
       await this.startTranscriptWatcher(settings);
 
       if (this.chromaMcpManager) {
@@ -650,6 +666,47 @@ export class WorkerService implements WorkerRef {
       return;
     } catch (error) {
       logger.error('SYSTEM', 'Background initialization failed', {}, error instanceof Error ? error : undefined);
+    }
+  }
+
+  private resumeOrphanSessions(): void {
+    if (!this.sessionRoutes) return;
+    try {
+      const db = this.dbManager.getSessionStore().db;
+      const rows = db.prepare(
+        "SELECT DISTINCT session_db_id FROM pending_messages WHERE status = 'pending'"
+      ).all() as Array<{ session_db_id: number }>;
+
+      let resumed = 0;
+      for (const { session_db_id } of rows) {
+        const existing = this.sessionManager.getSession(session_db_id);
+        if (existing?.generatorPromise) continue;
+        try {
+          this.sessionManager.initializeSession(session_db_id);
+          void this.sessionRoutes.ensureGeneratorRunning(session_db_id, 'orphan-resume');
+          resumed += 1;
+        } catch (e) {
+          logger.warn(
+            'SYSTEM',
+            `Failed to resume orphan session ${session_db_id}`,
+            {},
+            e instanceof Error ? e : new Error(String(e))
+          );
+        }
+      }
+
+      if (resumed > 0) {
+        logger.info('SYSTEM', `Orphan resume: started generators for ${resumed} sessions`, {
+          totalCandidates: rows.length
+        });
+      }
+    } catch (error) {
+      logger.error(
+        'SYSTEM',
+        'Orphan session resume scan failed',
+        {},
+        error instanceof Error ? error : new Error(String(error))
+      );
     }
   }
 

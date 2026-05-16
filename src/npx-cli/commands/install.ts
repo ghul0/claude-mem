@@ -1152,8 +1152,8 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
   if (selectedProvider === 'pi') {
     const wrote = mergeSettings({
       CLAUDE_MEM_PROVIDER: 'pi',
-      CLAUDE_MEM_PI_MODEL: getSetting('CLAUDE_MEM_PI_MODEL') || 'openai-codex/gpt-5.4-mini',
-      CLAUDE_MEM_PI_THINKING: getSetting('CLAUDE_MEM_PI_THINKING') || 'minimal',
+      CLAUDE_MEM_PI_MODEL: getSetting('CLAUDE_MEM_PI_MODEL') || 'openai-codex/gpt-5.3-codex-spark',
+      CLAUDE_MEM_PI_THINKING: getSetting('CLAUDE_MEM_PI_THINKING') || 'off',
     });
     if (wrote) log.info('Saved provider=pi to ~/.claude-mem/settings.json');
     return 'pi';

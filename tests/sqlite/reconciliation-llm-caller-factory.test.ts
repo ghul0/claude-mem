@@ -37,7 +37,7 @@ describe('createReconciliationCallerFromSettings', () => {
 
   it('returns PiReconciliationLlmCaller when enabled with model', async () => {
     process.env[FLAG_KEY] = 'true';
-    process.env[MODEL_KEY] = 'openai-codex/gpt-5.4-mini';
+    process.env[MODEL_KEY] = 'openai-codex/gpt-5.3-codex-spark';
     const caller = await createReconciliationCallerFromSettings();
     expect(caller).toBeInstanceOf(PiReconciliationLlmCaller);
   });

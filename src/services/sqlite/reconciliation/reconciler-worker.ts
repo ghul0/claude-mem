@@ -4,8 +4,10 @@ import {
   claimNextReconcileJob,
   markJobCompleted,
   markJobFailed,
-  markJobSkipped
+  markJobSkipped,
+  type EnqueueReconcileJobInput
 } from './jobs-store.js';
+import type { ObservationReconcileJobRow } from './types.js';
 import { processSingleReconcileJob } from './reconciler.js';
 import { isReconciliationEnabled } from './settings.js';
 import {
@@ -16,13 +18,15 @@ import {
 export interface ReconcileWorkerOptions {
   intervalMs?: number;
   caller?: ReconciliationLlmCaller;
+  concurrency?: number;
 }
 
 export class ReconcileWorker {
   private timer: ReturnType<typeof setInterval> | null = null;
-  private running = false;
+  private inFlight = 0;
   private caller: ReconciliationLlmCaller;
   private intervalMs: number;
+  private maxConcurrent: number;
 
   constructor(
     private getDb: () => Database | null,
@@ -30,6 +34,7 @@ export class ReconcileWorker {
   ) {
     this.caller = options.caller ?? new NoopReconciliationLlmCaller();
     this.intervalMs = options.intervalMs ?? 5000;
+    this.maxConcurrent = Math.max(1, options.concurrency ?? 1);
   }
 
   setCaller(caller: ReconciliationLlmCaller): void {
@@ -42,7 +47,10 @@ export class ReconcileWorker {
     this.timer = setInterval(() => {
       void this.tick();
     }, this.intervalMs);
-    logger.debug('RECONCILE', 'Reconcile worker loop started', { intervalMs: this.intervalMs });
+    logger.debug('RECONCILE', 'Reconcile worker loop started', {
+      intervalMs: this.intervalMs,
+      maxConcurrent: this.maxConcurrent
+    });
   }
 
   stop(): void {
@@ -54,46 +62,49 @@ export class ReconcileWorker {
   }
 
   async tick(): Promise<void> {
-    if (this.running) return;
     if (!isReconciliationEnabled()) return;
     const db = this.getDb();
     if (!db) return;
-    this.running = true;
-    try {
+    while (this.inFlight < this.maxConcurrent) {
       const job = claimNextReconcileJob(db);
       if (!job) return;
-      logger.debug('RECONCILE', `Claimed reconcile job ${job.id}`, {
-        observationId: job.observation_id,
-        project: job.project
+      this.inFlight += 1;
+      void this.processJob(db, job).finally(() => {
+        this.inFlight -= 1;
       });
-      try {
-        const outcome = await processSingleReconcileJob(
-          db,
-          { observationId: job.observation_id, project: job.project },
-          this.caller
-        );
-        if (outcome.status === 'skipped') {
-          markJobSkipped(db, job.id, outcome.reason ?? 'unknown');
-        } else {
-          markJobCompleted(db, job.id);
-        }
-        logger.debug('RECONCILE', `Reconcile job ${job.id} ${outcome.status}`, {
-          observationId: job.observation_id,
-          decisionsRecorded: outcome.decisionsRecorded,
-          candidatePoolSize: outcome.candidatePoolSize,
-          reason: outcome.reason
-        });
-      } catch (error) {
-        markJobFailed(db, job.id, error instanceof Error ? error.message : String(error));
-        logger.warn(
-          'RECONCILE',
-          `Reconcile job ${job.id} failed`,
-          { observationId: job.observation_id },
-          error instanceof Error ? error : new Error(String(error))
-        );
+    }
+  }
+
+  private async processJob(db: Database, job: ObservationReconcileJobRow): Promise<void> {
+    logger.debug('RECONCILE', `Claimed reconcile job ${job.id}`, {
+      observationId: job.observation_id,
+      project: job.project
+    });
+    try {
+      const outcome = await processSingleReconcileJob(
+        db,
+        { observationId: job.observation_id, project: job.project } satisfies EnqueueReconcileJobInput,
+        this.caller
+      );
+      if (outcome.status === 'skipped') {
+        markJobSkipped(db, job.id, outcome.reason ?? 'unknown');
+      } else {
+        markJobCompleted(db, job.id);
       }
-    } finally {
-      this.running = false;
+      logger.debug('RECONCILE', `Reconcile job ${job.id} ${outcome.status}`, {
+        observationId: job.observation_id,
+        decisionsRecorded: outcome.decisionsRecorded,
+        candidatePoolSize: outcome.candidatePoolSize,
+        reason: outcome.reason
+      });
+    } catch (error) {
+      markJobFailed(db, job.id, error instanceof Error ? error.message : String(error));
+      logger.warn(
+        'RECONCILE',
+        `Reconcile job ${job.id} failed`,
+        { observationId: job.observation_id },
+        error instanceof Error ? error : new Error(String(error))
+      );
     }
   }
 }

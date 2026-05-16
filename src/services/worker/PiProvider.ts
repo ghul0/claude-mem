@@ -220,8 +220,9 @@ export class PiProvider {
     writeFileSync(stdoutPath, '', 'utf8');
     writeFileSync(stderrPath, '', 'utf8');
 
+    const requiresExtensions = model.startsWith('claude-agent-sdk/');
     const args = [
-      '--no-extensions',
+      ...(requiresExtensions ? [] : ['--no-extensions']),
       '--no-session',
       '--no-context-files',
       '--no-skills',
@@ -326,8 +327,8 @@ export class PiProvider {
   private getPiConfig(): { model: string; thinking: string; timeoutMs: number } {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
     return {
-      model: settings.CLAUDE_MEM_PI_MODEL || settings.CLAUDE_MEM_MODEL || 'openai-codex/gpt-5.4-mini',
-      thinking: settings.CLAUDE_MEM_PI_THINKING || 'minimal',
+      model: settings.CLAUDE_MEM_PI_MODEL || settings.CLAUDE_MEM_MODEL || 'openai-codex/gpt-5.3-codex-spark',
+      thinking: settings.CLAUDE_MEM_PI_THINKING || 'off',
       timeoutMs: Number.parseInt(settings.CLAUDE_MEM_PI_TIMEOUT_MS || '120000', 10) || DEFAULT_TIMEOUT_MS,
     };
   }

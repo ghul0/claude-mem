@@ -213,7 +213,7 @@ export class PiReconciliationLlmCaller implements ReconciliationLlmCaller {
   }
 
   private async runPi(userPromptText: string, model: string): Promise<string> {
-    const thinking = SettingsDefaultsManager.get('CLAUDE_MEM_PI_THINKING') || 'minimal';
+    const thinking = SettingsDefaultsManager.get('CLAUDE_MEM_PI_THINKING') || 'off';
     const tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-reconcile-'));
     const systemPath = join(tempDir, 'system.md');
     const promptPath = join(tempDir, 'prompt.md');
@@ -224,8 +224,9 @@ export class PiReconciliationLlmCaller implements ReconciliationLlmCaller {
     writeFileSync(stdoutPath, '', 'utf8');
     writeFileSync(stderrPath, '', 'utf8');
 
+    const requiresExtensions = model.startsWith('claude-agent-sdk/');
     const args = [
-      '--no-extensions',
+      ...(requiresExtensions ? [] : ['--no-extensions']),
       '--no-session',
       '--no-context-files',
       '--no-skills',

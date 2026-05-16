@@ -117,6 +117,7 @@ export interface SettingsDefaults {
   CLAUDE_MEM_OBSERVATION_RECONCILIATION_CLASSIFIER_MODEL: string;
   CLAUDE_MEM_OBSERVATION_RECONCILIATION_DAILY_BUDGET_USD: string;
   CLAUDE_MEM_OBSERVATION_RECONCILIATION_KILL_SWITCH: string;
+  CLAUDE_MEM_OBSERVATION_RECONCILIATION_CONCURRENCY: string;
 }
 
 export class SettingsDefaultsManager {
@@ -129,8 +130,8 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_SKIP_TOOLS: 'ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion',
     CLAUDE_MEM_PROVIDER: 'claude',  // Default to Claude
     CLAUDE_MEM_CLAUDE_AUTH_METHOD: 'subscription',  // Default to logged-in Claude SDK auth (not API key)
-    CLAUDE_MEM_PI_MODEL: 'openai-codex/gpt-5.4-mini',
-    CLAUDE_MEM_PI_THINKING: 'minimal',
+    CLAUDE_MEM_PI_MODEL: 'openai-codex/gpt-5.3-codex-spark',
+    CLAUDE_MEM_PI_THINKING: 'off',
     CLAUDE_MEM_PI_TIMEOUT_MS: '120000',
     CLAUDE_MEM_PI_MAX_CONTEXT_MESSAGES: '20',
     CLAUDE_MEM_PI_MAX_TOKENS: '100000',
@@ -231,6 +232,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_CLASSIFIER_MODEL: '',              // Override classifier role model; empty = use _MODEL
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_DAILY_BUDGET_USD: '0',             // Daily USD budget cap; 0 = unlimited; jobs skip when exceeded
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_KILL_SWITCH: 'false',              // Global kill-switch: when true, halt all reconcile jobs without disabling master flag
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_CONCURRENCY: '1',                  // Max parallel reconcile jobs processed per tick (1 = serial)
   };
 
   static getAllDefaults(): SettingsDefaults {
