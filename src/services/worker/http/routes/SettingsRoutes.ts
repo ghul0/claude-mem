@@ -111,7 +111,13 @@ export class SettingsRoutes extends BaseRouteHandler {
       'CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED',
       'CLAUDE_MEM_FALLBACK_CHAIN',
       'CLAUDE_MEM_GEMINI_CLI_MODEL',
+      'CLAUDE_MEM_GEMINI_CLI_MIN_SPACING_MS',
       'CLAUDE_MEM_PROVIDER_COOLDOWN_MS',
+      'CLAUDE_MEM_COOLDOWN_QUOTA_EXHAUSTED_MS',
+      'CLAUDE_MEM_COOLDOWN_RATE_LIMIT_MS',
+      'CLAUDE_MEM_COOLDOWN_TRANSIENT_MS',
+      'CLAUDE_MEM_COOLDOWN_UNRECOVERABLE_MS',
+      'CLAUDE_MEM_COOLDOWN_AUTH_INVALID_MS',
     ];
 
     for (const key of settingKeys) {
@@ -267,6 +273,21 @@ export class SettingsRoutes extends BaseRouteHandler {
       const ms = parseInt(settings.CLAUDE_MEM_PROVIDER_COOLDOWN_MS, 10);
       if (isNaN(ms) || ms < 1000 || ms > 24 * 60 * 60 * 1000) {
         return { valid: false, error: 'CLAUDE_MEM_PROVIDER_COOLDOWN_MS must be between 1000 (1s) and 86400000 (24h)' };
+      }
+    }
+
+    for (const key of [
+      'CLAUDE_MEM_COOLDOWN_QUOTA_EXHAUSTED_MS',
+      'CLAUDE_MEM_COOLDOWN_RATE_LIMIT_MS',
+      'CLAUDE_MEM_COOLDOWN_TRANSIENT_MS',
+      'CLAUDE_MEM_COOLDOWN_UNRECOVERABLE_MS',
+      'CLAUDE_MEM_COOLDOWN_AUTH_INVALID_MS',
+    ]) {
+      if (settings[key]) {
+        const ms = parseInt(settings[key], 10);
+        if (isNaN(ms) || ms < 1000 || ms > 24 * 60 * 60 * 1000) {
+          return { valid: false, error: `${key} must be between 1000 (1s) and 86400000 (24h)` };
+        }
       }
     }
 

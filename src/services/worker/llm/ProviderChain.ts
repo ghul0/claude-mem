@@ -1,14 +1,37 @@
 import { logger } from '../../../utils/logger.js';
-import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager.js';
+import { SettingsDefaultsManager, type SettingsDefaults } from '../../../shared/SettingsDefaultsManager.js';
 import { ALL_PROVIDER_IDS, isProviderId, type CoolingState, type ProviderId } from './types.js';
 
-const DEFAULT_COOLDOWN_MS = 60 * 60 * 1000;
 const MAX_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_CHAIN: ProviderId[] = ['gemini-cli', 'codex-spark', 'codex-mini'];
+
+export type ErrorKind = 'quota_exhausted' | 'rate_limit' | 'transient' | 'unrecoverable' | 'auth_invalid';
+
+const COOLDOWN_DEFAULTS_MS: Record<ErrorKind, number> = {
+  quota_exhausted: 60 * 60 * 1000,
+  rate_limit: 60 * 1000,
+  transient: 90 * 1000,
+  unrecoverable: 60 * 60 * 1000,
+  auth_invalid: 24 * 60 * 60 * 1000,
+};
+
+const COOLDOWN_SETTING_KEYS: Record<ErrorKind, keyof SettingsDefaults> = {
+  quota_exhausted: 'CLAUDE_MEM_COOLDOWN_QUOTA_EXHAUSTED_MS',
+  rate_limit: 'CLAUDE_MEM_COOLDOWN_RATE_LIMIT_MS',
+  transient: 'CLAUDE_MEM_COOLDOWN_TRANSIENT_MS',
+  unrecoverable: 'CLAUDE_MEM_COOLDOWN_UNRECOVERABLE_MS',
+  auth_invalid: 'CLAUDE_MEM_COOLDOWN_AUTH_INVALID_MS',
+};
+
+function normalizeKind(kind: string | undefined): ErrorKind {
+  if (kind && kind in COOLDOWN_DEFAULTS_MS) return kind as ErrorKind;
+  return 'transient';
+}
 
 interface CoolingEntry {
   coolingUntil: number;
   reason: string;
+  kind: ErrorKind;
 }
 
 export class ProviderChain {
@@ -29,20 +52,24 @@ export class ProviderChain {
     return parsed.length > 0 ? parsed : [...DEFAULT_CHAIN];
   }
 
-  getCooldownMs(): number {
-    const raw = SettingsDefaultsManager.getInt('CLAUDE_MEM_PROVIDER_COOLDOWN_MS');
-    if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_COOLDOWN_MS;
-    return raw;
+  getCooldownMsFor(kind: ErrorKind): number {
+    const key = COOLDOWN_SETTING_KEYS[kind];
+    const raw = SettingsDefaultsManager.getInt(key);
+    if (Number.isFinite(raw) && raw > 0) return raw;
+    return COOLDOWN_DEFAULTS_MS[kind];
   }
 
-  markCoolingDown(provider: ProviderId, reason: string, retryAfterMs?: number): void {
+  markCoolingDown(provider: ProviderId, kind: string | undefined, reason: string, retryAfterMs?: number): void {
+    const normalizedKind = normalizeKind(kind);
+    const baseTtl = this.getCooldownMsFor(normalizedKind);
     const ttl = retryAfterMs !== undefined && retryAfterMs > 0
-      ? Math.min(retryAfterMs, MAX_COOLDOWN_MS)
-      : this.getCooldownMs();
+      ? Math.min(Math.max(retryAfterMs, baseTtl), MAX_COOLDOWN_MS)
+      : baseTtl;
     const until = Date.now() + ttl;
-    this.cooling.set(provider, { coolingUntil: until, reason });
+    this.cooling.set(provider, { coolingUntil: until, reason, kind: normalizedKind });
     logger.warn('CHAIN', `Provider cooling down`, {
       provider,
+      kind: normalizedKind,
       reason,
       coolingUntil: new Date(until).toISOString(),
       ttlMs: ttl,
@@ -82,6 +109,10 @@ export class ProviderChain {
       out.push({ provider, coolingUntil: entry.coolingUntil, reason: entry.reason });
     }
     return out;
+  }
+
+  getCoolingKind(provider: ProviderId): ErrorKind | undefined {
+    return this.cooling.get(provider)?.kind;
   }
 
   reset(): void {

@@ -94,7 +94,7 @@ export class CallerChain {
           { kind: 'transient', cause: error },
         );
         const retryAfterMs = classified.retryAfterMs;
-        this.chainStore.markCoolingDown(next, `${classified.kind}: ${classified.message.slice(0, 200)}`, retryAfterMs);
+        this.chainStore.markCoolingDown(next, classified.kind, `${classified.kind}: ${classified.message.slice(0, 200)}`, retryAfterMs);
         logger.warn('CHAIN', 'Provider failed, rotating to next', {
           provider: next,
           kind: classified.kind,
