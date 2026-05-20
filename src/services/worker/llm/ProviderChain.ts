@@ -3,6 +3,7 @@ import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager
 import { ALL_PROVIDER_IDS, isProviderId, type CoolingState, type ProviderId } from './types.js';
 
 const DEFAULT_COOLDOWN_MS = 60 * 60 * 1000;
+const MAX_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_CHAIN: ProviderId[] = ['gemini-cli', 'codex-spark', 'codex-mini'];
 
 interface CoolingEntry {
@@ -36,7 +37,7 @@ export class ProviderChain {
 
   markCoolingDown(provider: ProviderId, reason: string, retryAfterMs?: number): void {
     const ttl = retryAfterMs !== undefined && retryAfterMs > 0
-      ? Math.min(retryAfterMs, this.getCooldownMs())
+      ? Math.min(retryAfterMs, MAX_COOLDOWN_MS)
       : this.getCooldownMs();
     const until = Date.now() + ttl;
     this.cooling.set(provider, { coolingUntil: until, reason });

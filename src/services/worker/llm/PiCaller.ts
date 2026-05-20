@@ -76,6 +76,23 @@ function classifyPiError(combined: string): 'quota_exhausted' | 'transient' | 'u
   return 'transient';
 }
 
+function extractRetryAfterMs(combined: string): number | undefined {
+  const secondsMatch = combined.match(/"resets_in_seconds"\s*:\s*(\d+)/);
+  if (secondsMatch) {
+    const seconds = Number.parseInt(secondsMatch[1], 10);
+    if (Number.isFinite(seconds) && seconds > 0) return seconds * 1000;
+  }
+  const resetsAtMatch = combined.match(/"resets_at"\s*:\s*(\d+)/);
+  if (resetsAtMatch) {
+    const epoch = Number.parseInt(resetsAtMatch[1], 10);
+    if (Number.isFinite(epoch) && epoch > 0) {
+      const delta = epoch * 1000 - Date.now();
+      if (delta > 0) return delta;
+    }
+  }
+  return undefined;
+}
+
 export class PiCaller implements LlmCaller {
   readonly providerId: ProviderId;
   readonly modelName: string;
@@ -189,17 +206,27 @@ export class PiCaller implements LlmCaller {
         cleanup();
         if (code !== 0) {
           const combined = `${stderr}\n${stdout}`;
+          const retryAfterMs = extractRetryAfterMs(combined);
           reject(new ClassifiedProviderError(
             `${this.providerId} exited ${code ?? 'unknown'}: ${(stderr || stdout).slice(-2000)}`,
-            { kind: classifyPiError(combined), cause: new Error(stderr || stdout) },
+            {
+              kind: classifyPiError(combined),
+              cause: new Error(stderr || stdout),
+              ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+            },
           ));
           return;
         }
         const extracted = extractAssistantTextFromJsonEvents(stdout);
         if (extracted.errorMessage && !extracted.text) {
+          const retryAfterMs = extractRetryAfterMs(`${stdout}\n${extracted.errorMessage}`);
           reject(new ClassifiedProviderError(
             `${this.providerId} returned error event: ${extracted.errorMessage.slice(0, 2000)}`,
-            { kind: classifyPiError(extracted.errorMessage), cause: new Error(extracted.errorMessage) },
+            {
+              kind: classifyPiError(extracted.errorMessage),
+              cause: new Error(extracted.errorMessage),
+              ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+            },
           ));
           return;
         }

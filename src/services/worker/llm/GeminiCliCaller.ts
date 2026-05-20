@@ -60,26 +60,25 @@ export class GeminiCliCaller implements LlmCaller {
 
   async call(req: LlmCallRequest): Promise<string> {
     const tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-gemini-cli-'));
-    const promptPath = join(tempDir, 'prompt.md');
     const stdoutPath = join(tempDir, 'stdout.txt');
     const stderrPath = join(tempDir, 'stderr.txt');
-
-    const combinedPrompt = `${req.systemPrompt.trim()}\n\n---\n\n${req.userPrompt}`;
-    writeFileSync(promptPath, combinedPrompt, 'utf8');
     writeFileSync(stdoutPath, '', 'utf8');
     writeFileSync(stderrPath, '', 'utf8');
+
+    const combinedPrompt = `${req.systemPrompt.trim()}\n\n---\n\n${req.userPrompt}`;
 
     const args = [
       '--approval-mode', 'plan',
       '--skip-trust',
       '-m', this.modelName,
       '-o', 'json',
-      '-p', `@${promptPath}`,
+      '-p', '',
     ];
 
     logger.debug('CHAIN', `GeminiCliCaller starting subprocess`, {
       model: this.modelName,
       command: `${this.cliExecutable} ${args.map(shellQuote).join(' ')}`,
+      promptBytes: combinedPrompt.length,
       agentTag: req.agentTag,
     });
 
@@ -95,8 +94,13 @@ export class GeminiCliCaller implements LlmCaller {
           CLAUDE_MEM_GEMINI_CLI_ACTIVE: '1',
           CLAUDE_MEM_INTERNAL_AGENT: req.agentTag ?? 'gemini-cli-caller',
         },
-        stdio: ['ignore', stdoutFd, stderrFd],
+        stdio: ['pipe', stdoutFd, stderrFd],
       });
+
+      if (child.stdin) {
+        child.stdin.on('error', () => { /* swallow EPIPE if subprocess exits early */ });
+        child.stdin.end(combinedPrompt);
+      }
 
       const cleanup = () => {
         try { closeSync(stdoutFd); } catch { /* ignore */ }
