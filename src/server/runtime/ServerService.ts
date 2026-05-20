@@ -58,6 +58,15 @@ class ServerRuntimeInfoRoutes implements RouteHandler {
       res.json({ status: 'ok', runtime: SERVER_RUNTIME });
     });
 
+    app.get('/api/health', async (_req, res) => {
+      const queueHealth = await this.graph.server.getQueueHealth?.();
+      res.json({
+        status: 'ok',
+        runtime: SERVER_BETA_RUNTIME,
+        queue: queueHealth,
+      });
+    });
+
     // Phase 12 — `/v1/info` includes per-lane queue metrics so deploy probes
     // can read waiting/active/completed/failed/delayed/stalled without
     // hitting `/api/health`. Sampling is best-effort: a Redis blip surfaces
