@@ -246,7 +246,6 @@ CREATE TABLE IF NOT EXISTS observation_sources (
   source_id TEXT NOT NULL,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (observation_id, source_type, source_id),
   UNIQUE (source_type, source_id, generation_job_id, observation_id),
   CHECK (
     (source_type = 'agent_event' AND agent_event_id IS NOT NULL AND source_id = agent_event_id)
