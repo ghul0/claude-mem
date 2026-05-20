@@ -54,7 +54,7 @@ export class GeminiCliCaller implements LlmCaller {
 
   constructor(args: { modelName?: string; cliExecutable?: string } = {}) {
     const settingsModel = SettingsDefaultsManager.get('CLAUDE_MEM_GEMINI_CLI_MODEL');
-    this.modelName = args.modelName ?? settingsModel ?? 'gemini-3.1-flash-lite';
+    this.modelName = args.modelName ?? settingsModel ?? 'gemini-2.5-flash-lite';
     this.cliExecutable = args.cliExecutable ?? 'gemini';
   }
 
@@ -85,8 +85,6 @@ export class GeminiCliCaller implements LlmCaller {
 
     const stdoutFd = openSync(stdoutPath, 'a');
     const stderrFd = openSync(stderrPath, 'a');
-    const stderrBuffer: string[] = [];
-    let earlyQuotaKill = false;
 
     return await new Promise<string>((resolve, reject) => {
       let settled = false;
@@ -97,24 +95,8 @@ export class GeminiCliCaller implements LlmCaller {
           CLAUDE_MEM_GEMINI_CLI_ACTIVE: '1',
           CLAUDE_MEM_INTERNAL_AGENT: req.agentTag ?? 'gemini-cli-caller',
         },
-        stdio: ['ignore', stdoutFd, 'pipe'],
+        stdio: ['ignore', stdoutFd, stderrFd],
       });
-
-      if (child.stderr) {
-        child.stderr.on('data', (chunk: Buffer) => {
-          const text = chunk.toString('utf8');
-          try { writeFileSync(stderrPath, text, { flag: 'a' }); } catch { /* ignore */ }
-          stderrBuffer.push(text);
-          const recent = stderrBuffer.join('').slice(-4000).toLowerCase();
-          if (!earlyQuotaKill && (recent.includes('exhausted your capacity') || recent.includes('resource_exhausted') || recent.includes('quota exceeded'))) {
-            earlyQuotaKill = true;
-            logger.warn('CHAIN', 'gemini-cli reported capacity exhaustion in stderr, killing subprocess', {
-              agentTag: req.agentTag,
-            });
-            try { child.kill('SIGTERM'); } catch { /* ignore */ }
-          }
-        });
-      }
 
       const cleanup = () => {
         try { closeSync(stdoutFd); } catch { /* ignore */ }
