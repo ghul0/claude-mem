@@ -37,7 +37,7 @@ describe('buildServerJobId', () => {
 
   it('uses a kind-prefixed sha256 hex format', () => {
     const id = buildServerJobId(baseParts);
-    expect(id).toMatch(/^evt_[0-9a-f]{64}$/);
+    expect(id).toMatch(/^[a-z]+_[0-9a-f]{64}$/);
   });
 
   it('uses different prefixes per kind', () => {

@@ -60,8 +60,6 @@ function buildFakeWorker(state: FakeWorkerState) {
         if (event === 'error') {
           state.errorHandlers.push(handler as (error: unknown) => void);
         }
-        // Phase 12 — capture all lifecycle handlers on the fake worker so
-        // tests can fire completed/failed/stalled events synchronously.
         const ev = state.eventHandlers ?? (state.eventHandlers = new Map());
         ev.set(event, handler);
       },
@@ -170,7 +168,7 @@ describe('ServerJobQueue', () => {
     ).not.toThrow();
   });
 
-  it('Phase 12 — emits completed/failed/stalled lifecycle events through observe()', () => {
+  it('emits completed/failed/stalled lifecycle events through observe()', () => {
     const queueState: FakeQueueState = { added: [], removed: [], closed: false };
     const workerState: FakeWorkerState = {
       processor: null, options: null, errorHandlers: [], ranWith: null, closed: false,
@@ -190,7 +188,6 @@ describe('ServerJobQueue', () => {
     });
     sjq.start(async () => {});
 
-    // Fire a fake "active" then "completed" so duration is positive.
     workerState.eventHandlers?.get('active')?.({ id: 'job1' });
     workerState.eventHandlers?.get('completed')?.({ id: 'job1', data: { source_type: 'agent_event' } }, { ok: true });
     workerState.eventHandlers?.get('failed')?.({ id: 'job2', data: { source_type: 'agent_event' }, attemptsMade: 2 }, new Error('boom'));

@@ -11,11 +11,6 @@ export interface ServerJobIdParts {
   source_id: string;
 }
 
-// SHA-256-derived deterministic IDs avoid Redis key collisions across tenants
-// and keep BullMQ jobId deduplication intact across process restarts.
-// Format: `${kindPrefix}_${sha256hex}` with NO ':' characters (BullMQ uses ':'
-// internally as a key separator; embedding ':' in jobIds causes scan/state
-// confusion).
 export function buildServerJobId(parts: ServerJobIdParts): string {
   const prefix = SERVER_JOB_KIND_PREFIX[parts.kind];
   const canonical = JSON.stringify({

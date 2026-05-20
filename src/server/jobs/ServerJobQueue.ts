@@ -14,19 +14,6 @@ import {
 import { logger } from '../../utils/logger.js';
 import type { RedisQueueConfig } from '../queue/redis-config.js';
 
-// BullMQ Worker docs: https://docs.bullmq.io/guide/workers
-// BullMQ Concurrency:  https://docs.bullmq.io/guide/workers/concurrency
-// BullMQ Stalled Jobs: https://docs.bullmq.io/guide/jobs/stalled
-//
-// ServerJobQueue is a thin wrapper around the BullMQ Queue + Worker pair for
-// one named queue. It enforces:
-//   - autorun: false on every Worker (start() is called explicitly)
-//   - default concurrency: 1 (per-kind concurrency tuning happens later)
-//   - an attached `error` listener on every Worker (BullMQ docs require this
-//     to avoid unhandled-error crashes when a job throws)
-// Postgres outbox is canonical history; BullMQ is the execution transport
-// only. Do not treat completed/failed Worker state as authoritative.
-
 export interface ServerJobCounts {
   waiting: number;
   active: number;
@@ -35,10 +22,6 @@ export interface ServerJobCounts {
   completed: number;
 }
 
-// Phase 12 — runtime stalled counter. BullMQ doesn't expose a stalled counter
-// from getJobCounts (the underlying list is rotated on consumption). We keep
-// a per-process counter that tracks how many distinct stalled events we've
-// observed since startup. /api/health and /v1/info surface this.
 export interface ServerJobLifecycleCounters {
   stalled: number;
   errored: number;
@@ -57,7 +40,6 @@ export interface ServerJobQueueOptions<TPayload> {
   concurrency?: number;
   lockDurationMs?: number;
   defaultJobOptions?: JobsOptions;
-  // Test seams: allow injecting fakes without touching Redis.
   queueFactory?: (name: string, options: QueueOptions) => Pick<
     Queue<TPayload>,
     'add' | 'getJob' | 'getJobCounts' | 'remove' | 'close'
@@ -86,11 +68,6 @@ export class ServerJobQueue<TPayload extends object = object> {
   private readonly counters: ServerJobLifecycleCounters = { stalled: 0, errored: 0 };
   private readonly listeners: ServerJobObservedListener[] = [];
   private readonly jobStartTimes = new Map<string, number>();
-  // worker.on('stalled') and the QueueEvents 'stalled' subscriber both fire
-  // for the same job — BullMQ's docs explicitly recommend listening on both
-  // for production reliability. To avoid double-counting and double-callback
-  // we record each stalled jobId here for a short TTL and treat the second
-  // signal as an idempotent no-op.
   private readonly recentlyStalled = new Map<string, NodeJS.Timeout>();
   private static readonly STALLED_DEDUPE_WINDOW_MS = 30_000;
 
@@ -192,16 +169,6 @@ export class ServerJobQueue<TPayload extends object = object> {
     }
   }
 
-  // BullMQ docs require `worker.on('error', ...)` to avoid unhandled rejections
-  // when a job throws. We construct the Worker with autorun: false so the
-  // caller controls startup explicitly via run().
-  //
-  // Phase 12 — wire `completed`, `failed`, `progress`, `error`, and the
-  // QueueEvents `stalled` listener. Stalled events go through QueueEvents
-  // because BullMQ's docs note rare stalls don't always reach the local
-  // worker.on('stalled') listener; QueueEvents publishes from Redis.
-  // Deduped stalled handler. Counts the stall once even though BullMQ may
-  // surface it via both worker.on('stalled') and QueueEvents 'stalled'.
   private notifyStalled(jobId: string, source: 'worker' | 'queue-events'): void {
     if (this.recentlyStalled.has(jobId)) {
       logger.debug?.('QUEUE', `[generation] job=${jobId} stalled (suppressed duplicate from ${source})`, {
@@ -229,9 +196,6 @@ export class ServerJobQueue<TPayload extends object = object> {
     }
   }
 
-  // Single source of truth for queue-side error accounting. worker errors and
-  // QueueEvents errors both increment counters.errored and notify listeners,
-  // so per-process metrics aren't asymmetric across the two sources.
   private notifyQueueError(error: unknown, source: 'worker' | 'queue-events'): void {
     this.counters.errored += 1;
     logger.warn('QUEUE', `${this.name} ${source} error`, {
@@ -257,9 +221,6 @@ export class ServerJobQueue<TPayload extends object = object> {
       ? this.workerFactory(this.name, processor, workerOptions)
       : new Worker<TPayload>(this.name, processor, workerOptions);
     worker.on('error', (error: unknown) => this.notifyQueueError(error, 'worker'));
-    // BullMQ Worker exposes `active`, `completed`, `failed`, `progress`, and
-    // `stalled` events. We attach to all five because the runtime relies on
-    // them for observability (Phase 12).
     if (typeof (worker as { on?: unknown }).on === 'function') {
       const w = worker as Worker<TPayload>;
       w.on('active', (job: Job<TPayload>) => {
@@ -307,10 +268,6 @@ export class ServerJobQueue<TPayload extends object = object> {
     worker.run();
     this.worker = worker;
 
-    // QueueEvents subscribes to Redis pub/sub for cross-process events
-    // (BullMQ "Stalled Jobs" docs recommend this for production reliability).
-    // Skip in test/factory mode since the test factory does not provide a
-    // real Redis connection.
     if (!this.workerFactory) {
       try {
         const events = new QueueEvents(this.name, {
@@ -318,8 +275,6 @@ export class ServerJobQueue<TPayload extends object = object> {
           prefix: this.config.prefix,
         } as QueueEventsOptions);
         events.on('stalled', ({ jobId }: { jobId: string }) => this.notifyStalled(jobId, 'queue-events'));
-        // QueueEvents emits its own 'error' too — surface through the same
-        // counter+listener path as worker errors so observability stays symmetric.
         events.on('error', (error: Error) => this.notifyQueueError(error, 'queue-events'));
         this.queueEvents = events;
       } catch (error) {
@@ -332,21 +287,10 @@ export class ServerJobQueue<TPayload extends object = object> {
     this.started = true;
   }
 
-  /**
-   * Phase 12 — register an observer for completed/failed/stalled/error
-   * events. Used by the runtime to surface lifecycle hooks (audit, metrics)
-   * without subclassing. Listeners that throw are isolated.
-   */
   observe(listener: ServerJobObservedListener): void {
     this.listeners.push(listener);
   }
 
-  /**
-   * Phase 12 — runtime counters for stalled/errored events. waiting/active/
-   * completed/failed/delayed live in `getCounts()` (BullMQ getJobCounts).
-   * Stalled is a per-process counter because BullMQ rotates the underlying
-   * list and there's no reliable count from getJobCounts.
-   */
   getLifecycleCounters(): ServerJobLifecycleCounters {
     return { ...this.counters };
   }
