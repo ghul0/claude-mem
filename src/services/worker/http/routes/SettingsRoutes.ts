@@ -109,6 +109,9 @@ export class SettingsRoutes extends BaseRouteHandler {
       'CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY',
       'CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE',
       'CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED',
+      'CLAUDE_MEM_FALLBACK_CHAIN',
+      'CLAUDE_MEM_GEMINI_CLI_MODEL',
+      'CLAUDE_MEM_PROVIDER_COOLDOWN_MS',
     ];
 
     for (const key of settingKeys) {
@@ -227,6 +230,43 @@ export class SettingsRoutes extends BaseRouteHandler {
     if (settings.CLAUDE_MEM_CONTEXT_FULL_FIELD) {
       if (!['narrative', 'facts'].includes(settings.CLAUDE_MEM_CONTEXT_FULL_FIELD)) {
         return { valid: false, error: 'CLAUDE_MEM_CONTEXT_FULL_FIELD must be "narrative" or "facts"' };
+      }
+    }
+
+    if (settings.CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES) {
+      const count = parseInt(settings.CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES, 10);
+      if (isNaN(count) || count < 1 || count > 100) {
+        return { valid: false, error: 'CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES must be between 1 and 100' };
+      }
+    }
+
+    if (settings.CLAUDE_MEM_OPENROUTER_MAX_TOKENS) {
+      const tokens = parseInt(settings.CLAUDE_MEM_OPENROUTER_MAX_TOKENS, 10);
+      if (isNaN(tokens) || tokens < 1000 || tokens > 1000000) {
+        return { valid: false, error: 'CLAUDE_MEM_OPENROUTER_MAX_TOKENS must be between 1000 and 1000000' };
+      }
+    }
+
+    if (settings.CLAUDE_MEM_FALLBACK_CHAIN) {
+      const validProviderIds = ['gemini-cli', 'codex-spark', 'codex-mini'];
+      const tokens = String(settings.CLAUDE_MEM_FALLBACK_CHAIN)
+        .split(',')
+        .map((t: string) => t.trim())
+        .filter(Boolean);
+      if (tokens.length === 0) {
+        return { valid: false, error: 'CLAUDE_MEM_FALLBACK_CHAIN must list at least one provider' };
+      }
+      for (const token of tokens) {
+        if (!validProviderIds.includes(token)) {
+          return { valid: false, error: `CLAUDE_MEM_FALLBACK_CHAIN contains unknown provider "${token}". Allowed: ${validProviderIds.join(', ')}` };
+        }
+      }
+    }
+
+    if (settings.CLAUDE_MEM_PROVIDER_COOLDOWN_MS) {
+      const ms = parseInt(settings.CLAUDE_MEM_PROVIDER_COOLDOWN_MS, 10);
+      if (isNaN(ms) || ms < 1000 || ms > 24 * 60 * 60 * 1000) {
+        return { valid: false, error: 'CLAUDE_MEM_PROVIDER_COOLDOWN_MS must be between 1000 (1s) and 86400000 (24h)' };
       }
     }
 

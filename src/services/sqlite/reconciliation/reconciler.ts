@@ -103,16 +103,8 @@ export async function processSingleReconcileJob(
     }
   }
 
-  const selectorModel = resolvedSelectorModel(settings);
-  const classifierModel = resolvedClassifierModel(settings);
-  if (!selectorModel || !classifierModel) {
-    return {
-      status: 'skipped',
-      reason: 'no_reconciliation_model_configured',
-      candidatePoolSize: 0,
-      decisionsRecorded: 0
-    };
-  }
+  const selectorModel = resolvedSelectorModel(settings) || 'chain';
+  const classifierModel = resolvedClassifierModel(settings) || 'chain';
 
   const newObservation = loadObservationForReconcile(db, ctx.observationId);
   if (!newObservation) {
@@ -192,6 +184,7 @@ export async function processSingleReconcileJob(
     candidates: cappedCandidates,
     model: classifierModel
   });
+  const recordedClassifierModel = classifierResponse.modelUsed || classifierModel;
 
   let decisionsRecorded = 0;
   for (const decision of classifierResponse.decisions) {
@@ -227,7 +220,7 @@ export async function processSingleReconcileJob(
       evidence: decision.evidence,
       reason: decision.reason,
       actionApplied: applyOutcome.applied ? applyOutcome.newStatus : null,
-      model: classifierModel
+      model: recordedClassifierModel
     });
     decisionsRecorded += 1;
   }

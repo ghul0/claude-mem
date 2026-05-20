@@ -118,6 +118,9 @@ export interface SettingsDefaults {
   CLAUDE_MEM_OBSERVATION_RECONCILIATION_DAILY_BUDGET_USD: string;
   CLAUDE_MEM_OBSERVATION_RECONCILIATION_KILL_SWITCH: string;
   CLAUDE_MEM_OBSERVATION_RECONCILIATION_CONCURRENCY: string;
+  CLAUDE_MEM_FALLBACK_CHAIN: string;
+  CLAUDE_MEM_GEMINI_CLI_MODEL: string;
+  CLAUDE_MEM_PROVIDER_COOLDOWN_MS: string;
 }
 
 export class SettingsDefaultsManager {
@@ -233,6 +236,9 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_DAILY_BUDGET_USD: '0',             // Daily USD budget cap; 0 = unlimited; jobs skip when exceeded
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_KILL_SWITCH: 'false',              // Global kill-switch: when true, halt all reconcile jobs without disabling master flag
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_CONCURRENCY: '1',                  // Max parallel reconcile jobs processed per tick (1 = serial)
+    CLAUDE_MEM_FALLBACK_CHAIN: 'gemini-cli,codex-spark,codex-mini',          // Provider fallback order; rotates on any provider error and cools each failed provider for CLAUDE_MEM_PROVIDER_COOLDOWN_MS
+    CLAUDE_MEM_GEMINI_CLI_MODEL: 'gemini-3.1-flash-lite',                    // Model passed to `gemini -m` when gemini-cli provider runs
+    CLAUDE_MEM_PROVIDER_COOLDOWN_MS: '3600000',                              // Cooldown TTL for a provider after any error (default 1h)
   };
 
   static getAllDefaults(): SettingsDefaults {

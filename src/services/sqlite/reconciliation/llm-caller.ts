@@ -11,6 +11,7 @@ export interface CandidateSelectorRequest {
 export interface CandidateSelectorResponse {
   candidateIds: number[];
   notes?: string;
+  modelUsed?: string;
 }
 
 export interface RelationClassifierRequest {
@@ -31,6 +32,7 @@ export interface RelationClassifierDecision {
 
 export interface RelationClassifierResponse {
   decisions: RelationClassifierDecision[];
+  modelUsed?: string;
 }
 
 export interface ReconciliationLlmCaller {
@@ -64,7 +66,6 @@ export async function createReconciliationCallerFromSettings(): Promise<Reconcil
   const { loadReconciliationSettings } = await import('./settings.js');
   const settings = loadReconciliationSettings();
   if (!settings.enabled) return new NoopReconciliationLlmCaller();
-  if (!settings.model) return new NoopReconciliationLlmCaller();
   const { PiReconciliationLlmCaller } = await import('./pi-llm-caller.js');
   return new PiReconciliationLlmCaller();
 }

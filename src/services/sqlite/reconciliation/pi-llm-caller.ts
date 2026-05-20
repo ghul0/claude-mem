@@ -1,9 +1,6 @@
-import { spawn } from 'child_process';
-import { closeSync, mkdtempSync, openSync, readFileSync, writeFileSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
 import { logger } from '../../../utils/logger.js';
 import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager.js';
+import { globalCallerChain } from '../../worker/llm/index.js';
 import type {
   CandidateSelectorRequest,
   CandidateSelectorResponse,
@@ -109,30 +106,6 @@ function buildClassifierUserPrompt(request: RelationClassifierRequest): string {
   return JSON.stringify(payload, null, 2);
 }
 
-function extractAssistantTextFromJsonEvents(stdout: string): string {
-  const finalChunks: string[] = [];
-  const deltaChunks: string[] = [];
-  for (const line of stdout.split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    try {
-      const event = JSON.parse(line) as Record<string, unknown>;
-      const updateEvent = event.assistantMessageEvent as Record<string, unknown> | undefined;
-      const message = event.message as Record<string, unknown> | undefined;
-      if (event.type === 'message_update' && updateEvent?.type === 'text_delta' && typeof updateEvent.delta === 'string') {
-        deltaChunks.push(updateEvent.delta);
-      } else if (event.type === 'message_end' && message?.role === 'assistant' && typeof message.content === 'string') {
-        finalChunks.push(message.content);
-      } else if (event.type === 'message_update' && updateEvent?.type === 'text_end' && typeof updateEvent.content === 'string') {
-        finalChunks.push(updateEvent.content);
-      }
-    } catch {
-      // ignore non-JSON lines
-    }
-  }
-  const combined = finalChunks.join('\n').trim() || deltaChunks.join('').trim();
-  return combined;
-}
-
 function parseLooseJson(text: string): unknown {
   const trimmed = text.trim();
   if (!trimmed) return null;
@@ -156,38 +129,37 @@ function parseLooseJson(text: string): unknown {
 
 export interface PiCallerOptions {
   timeoutMs?: number;
-  piExecutable?: string;
 }
 
 export class PiReconciliationLlmCaller implements ReconciliationLlmCaller {
   private timeoutMs: number;
-  private piExecutable: string;
 
   constructor(options: PiCallerOptions = {}) {
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.piExecutable = options.piExecutable ?? 'pi';
+    const settingsTimeout = Number.parseInt(SettingsDefaultsManager.get('CLAUDE_MEM_PI_TIMEOUT_MS'), 10);
+    this.timeoutMs = options.timeoutMs ?? (Number.isFinite(settingsTimeout) && settingsTimeout > 0 ? settingsTimeout : DEFAULT_TIMEOUT_MS);
   }
 
   async selectCandidates(request: CandidateSelectorRequest): Promise<CandidateSelectorResponse> {
-    const text = await this.runPi(buildSelectorUserPrompt(request), request.model);
+    const { text, model } = await this.runChain(buildSelectorUserPrompt(request), 'reconciliation-selector');
     const parsed = parseLooseJson(text) as { candidateIds?: unknown; notes?: unknown } | null;
     if (!parsed || !Array.isArray(parsed.candidateIds)) {
       logger.warn('RECONCILE', 'Selector returned unparsable JSON', { textPreview: text.slice(0, 400) });
-      return { candidateIds: [], notes: 'selector_response_unparsable' };
+      return { candidateIds: [], notes: 'selector_response_unparsable', modelUsed: model };
     }
     const candidateIds = parsed.candidateIds.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
     return {
       candidateIds,
-      notes: typeof parsed.notes === 'string' ? parsed.notes : undefined
+      notes: typeof parsed.notes === 'string' ? parsed.notes : undefined,
+      modelUsed: model,
     };
   }
 
   async classifyRelations(request: RelationClassifierRequest): Promise<RelationClassifierResponse> {
-    const text = await this.runPi(buildClassifierUserPrompt(request), request.model);
+    const { text, model } = await this.runChain(buildClassifierUserPrompt(request), 'reconciliation-classifier');
     const parsed = parseLooseJson(text) as { decisions?: unknown } | null;
     if (!parsed || !Array.isArray(parsed.decisions)) {
       logger.warn('RECONCILE', 'Classifier returned unparsable JSON', { textPreview: text.slice(0, 400) });
-      return { decisions: [] };
+      return { decisions: [], modelUsed: model };
     }
     const decisions: RelationClassifierDecision[] = [];
     for (const raw of parsed.decisions) {
@@ -209,87 +181,24 @@ export class PiReconciliationLlmCaller implements ReconciliationLlmCaller {
           : null
       });
     }
-    return { decisions };
+    return { decisions, modelUsed: model };
   }
 
-  private async runPi(userPromptText: string, model: string): Promise<string> {
-    const thinking = SettingsDefaultsManager.get('CLAUDE_MEM_PI_THINKING') || 'off';
-    const tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-reconcile-'));
-    const systemPath = join(tempDir, 'system.md');
-    const promptPath = join(tempDir, 'prompt.md');
-    const stdoutPath = join(tempDir, 'stdout.txt');
-    const stderrPath = join(tempDir, 'stderr.txt');
-    writeFileSync(systemPath, SYSTEM_PROMPT, 'utf8');
-    writeFileSync(promptPath, userPromptText, 'utf8');
-    writeFileSync(stdoutPath, '', 'utf8');
-    writeFileSync(stderrPath, '', 'utf8');
-
-    const requiresExtensions = model.startsWith('claude-agent-sdk/');
-    const args = [
-      ...(requiresExtensions ? [] : ['--no-extensions']),
-      '--no-session',
-      '--no-context-files',
-      '--no-skills',
-      '--no-tools',
-      '--system-prompt', systemPath,
-      '--model', model,
-      '--thinking', thinking,
-      '--mode', 'json',
-      '-p', `@${promptPath}`
-    ];
-
-    const stdoutFd = openSync(stdoutPath, 'a');
-    const stderrFd = openSync(stderrPath, 'a');
+  private async runChain(userPromptText: string, agentTag: string): Promise<{ text: string; model: string }> {
     const startedAt = Date.now();
-
-    return await new Promise<string>((resolve, reject) => {
-      let settled = false;
-      const child = spawn(this.piExecutable, args, {
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          CLAUDE_MEM_PI_PROVIDER_ACTIVE: '1',
-          CLAUDE_MEM_INTERNAL_AGENT: 'reconciliation'
-        },
-        stdio: ['ignore', stdoutFd, stderrFd]
-      });
-
-      const cleanup = () => {
-        try { closeSync(stdoutFd); } catch { /* ignore */ }
-        try { closeSync(stderrFd); } catch { /* ignore */ }
-      };
-
-      const timeoutHandle = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        try { child.kill('SIGTERM'); } catch { /* ignore */ }
-        cleanup();
-        reject(new Error(`Pi reconciliation timed out after ${this.timeoutMs}ms`));
-      }, this.timeoutMs);
-
-      child.on('error', (error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeoutHandle);
-        cleanup();
-        reject(new Error(`Pi reconciliation spawn failed: ${error.message}`));
-      });
-
-      child.on('exit', (code) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeoutHandle);
-        const stdoutText = readFileSync(stdoutPath, 'utf8');
-        const stderrText = readFileSync(stderrPath, 'utf8');
-        cleanup();
-        const durationMs = Date.now() - startedAt;
-        if (code !== 0) {
-          reject(new Error(`Pi reconciliation exited ${code ?? 'unknown'} after ${durationMs}ms: ${(stderrText || stdoutText).slice(-1500)}`));
-          return;
-        }
-        const text = extractAssistantTextFromJsonEvents(stdoutText);
-        resolve(text);
-      });
+    const result = await globalCallerChain.call({
+      systemPrompt: SYSTEM_PROMPT,
+      userPrompt: userPromptText,
+      mode: 'json',
+      timeoutMs: this.timeoutMs,
+      agentTag,
     });
+    logger.debug('RECONCILE', 'Chain returned reconciliation response', {
+      provider: result.provider,
+      model: result.model,
+      agentTag,
+      durationMs: Date.now() - startedAt,
+    });
+    return { text: result.text, model: result.model };
   }
 }

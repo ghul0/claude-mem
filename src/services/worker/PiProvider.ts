@@ -1,7 +1,3 @@
-import { spawn } from 'child_process';
-import { closeSync, mkdtempSync, openSync, readFileSync, writeFileSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
 import { buildContinuationPrompt, buildInitPrompt, buildObservationPrompt, buildSummaryPrompt } from '../../sdk/prompts.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
@@ -13,51 +9,12 @@ import { DatabaseManager } from './DatabaseManager.js';
 import { SessionManager } from './SessionManager.js';
 import { isAbortError, processAgentResponse, type WorkerRef } from './agents/index.js';
 import { ClassifiedProviderError } from './provider-errors.js';
+import { globalCallerChain } from './llm/index.js';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_CONTEXT_MESSAGES = 20;
 const DEFAULT_MAX_ESTIMATED_TOKENS = 100_000;
 const CHARS_PER_TOKEN_ESTIMATE = 4;
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'"'"'`)}'`;
-}
-
-function textFromUnknown(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (Array.isArray(value)) return value.map(textFromUnknown).filter(Boolean).join('\n');
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    if (typeof record.text === 'string') return record.text;
-    if (typeof record.content === 'string') return record.content;
-    return textFromUnknown(record.content ?? record.message ?? record.result ?? record.value);
-  }
-  return '';
-}
-
-function extractAssistantTextFromJsonEvents(stdout: string): string {
-  const finalChunks: string[] = [];
-  const deltaChunks: string[] = [];
-  for (const line of stdout.split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    try {
-      const event = JSON.parse(line) as Record<string, any>;
-      if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
-        const delta = textFromUnknown(event.assistantMessageEvent.delta);
-        if (delta) deltaChunks.push(delta);
-      } else if (event.type === 'message_end' && event.message?.role === 'assistant') {
-        const text = textFromUnknown(event.message.content).trim();
-        if (text) finalChunks.push(text);
-      } else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_end') {
-        const text = textFromUnknown(event.assistantMessageEvent.content).trim();
-        if (text) finalChunks.push(text);
-      }
-    } catch {
-      // Ignore non-JSON lines.
-    }
-  }
-  return (finalChunks.join('\n').trim() || deltaChunks.join('').trim());
-}
 
 function buildPiPrompt(history: ConversationMessage[]): string {
   return history
@@ -86,7 +43,7 @@ export class PiProvider {
   ) {}
 
   async startSession(session: ActiveSession, worker?: WorkerRef): Promise<void> {
-    const { model, thinking, timeoutMs } = this.getPiConfig();
+    const { timeoutMs } = this.getPiConfig();
 
     if (!session.memorySessionId) {
       const syntheticMemorySessionId = `pi-${session.contentSessionId}-${Date.now()}`;
@@ -103,8 +60,8 @@ export class PiProvider {
     session.conversationHistory.push({ role: 'user', content: initPrompt });
 
     try {
-      const initResponse = await this.queryPi(session.conversationHistory, model, thinking, timeoutMs, session.abortController);
-      await this.handleResponse(initResponse, session, worker, null, undefined, model);
+      const initResponse = await this.queryChain(session.conversationHistory, timeoutMs, session.abortController, 'pi-session-init');
+      await this.handleResponse(initResponse.text, session, worker, null, undefined, initResponse.model);
     } catch (error) {
       await this.handleSessionError(error, session);
       return;
@@ -113,7 +70,7 @@ export class PiProvider {
     let lastCwd: string | undefined;
     try {
       for await (const message of this.sessionManager.getMessageIterator(session.sessionDbId)) {
-        lastCwd = await this.processOneMessage(session, message, lastCwd, model, thinking, timeoutMs, worker, mode);
+        lastCwd = await this.processOneMessage(session, message, lastCwd, timeoutMs, worker, mode);
       }
     } catch (error) {
       await this.handleSessionError(error, session);
@@ -125,8 +82,6 @@ export class PiProvider {
       sessionId: session.sessionDbId,
       duration: `${(sessionDuration / 1000).toFixed(1)}s`,
       historyLength: session.conversationHistory.length,
-      model,
-      thinking,
     });
   }
 
@@ -134,8 +89,6 @@ export class PiProvider {
     session: ActiveSession,
     message: PendingMessageWithId,
     lastCwd: string | undefined,
-    model: string,
-    thinking: string,
     timeoutMs: number,
     worker: WorkerRef | undefined,
     mode: ModeConfig,
@@ -156,8 +109,8 @@ export class PiProvider {
         cwd: message.cwd,
       });
       session.conversationHistory.push({ role: 'user', content: obsPrompt });
-      const response = await this.queryPi(session.conversationHistory, model, thinking, timeoutMs, session.abortController);
-      await this.handleResponse(response, session, worker, originalTimestamp, lastCwd, model);
+      const response = await this.queryChain(session.conversationHistory, timeoutMs, session.abortController, 'pi-observation');
+      await this.handleResponse(response.text, session, worker, originalTimestamp, lastCwd, response.model);
     } else if (message.type === 'summarize') {
       const summaryPrompt = buildSummaryPrompt({
         id: session.sessionDbId,
@@ -167,8 +120,8 @@ export class PiProvider {
         last_assistant_message: message.last_assistant_message || '',
       }, mode);
       session.conversationHistory.push({ role: 'user', content: summaryPrompt });
-      const response = await this.queryPi(session.conversationHistory, model, thinking, timeoutMs, session.abortController);
-      await this.handleResponse(response, session, worker, originalTimestamp, lastCwd, model);
+      const response = await this.queryChain(session.conversationHistory, timeoutMs, session.abortController, 'pi-summary');
+      await this.handleResponse(response.text, session, worker, originalTimestamp, lastCwd, response.model);
     }
 
     return lastCwd;
@@ -202,117 +155,29 @@ export class PiProvider {
     return truncated;
   }
 
-  private async queryPi(
+  private async queryChain(
     history: ConversationMessage[],
-    model: string,
-    thinking: string,
     timeoutMs: number,
     abortController: AbortController,
-  ): Promise<string> {
-    const tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-pi-provider-'));
-    const systemPath = join(tempDir, 'system.md');
-    const promptPath = join(tempDir, 'prompt.md');
-    const stdoutPath = join(tempDir, 'stdout.txt');
-    const stderrPath = join(tempDir, 'stderr.txt');
+    agentTag: string,
+  ): Promise<{ text: string; model: string }> {
     const truncatedHistory = this.truncateHistory(history);
-    writeFileSync(systemPath, buildPiSystemPrompt(), 'utf8');
-    writeFileSync(promptPath, buildPiPrompt(truncatedHistory), 'utf8');
-    writeFileSync(stdoutPath, '', 'utf8');
-    writeFileSync(stderrPath, '', 'utf8');
-
-    const requiresExtensions = model.startsWith('claude-agent-sdk/');
-    const args = [
-      ...(requiresExtensions ? [] : ['--no-extensions']),
-      '--no-session',
-      '--no-context-files',
-      '--no-skills',
-      '--no-tools',
-      '--system-prompt', systemPath,
-      '--model', model,
-      '--thinking', thinking,
-      '--mode', 'json',
-      '-p', `@${promptPath}`,
-    ];
-
-    logger.debug('SDK', 'Starting Pi provider subprocess', {
-      command: `pi ${args.map(shellQuote).join(' ')}`,
-      promptPath,
-      model,
-      thinking,
+    const result = await globalCallerChain.call({
+      systemPrompt: buildPiSystemPrompt(),
+      userPrompt: buildPiPrompt(truncatedHistory),
+      mode: 'json',
+      timeoutMs,
+      abortSignal: abortController.signal,
+      agentTag,
+    });
+    logger.debug('SDK', 'CallerChain returned response', {
+      provider: result.provider,
+      model: result.model,
+      agentTag,
       historyLength: history.length,
       sentHistoryLength: truncatedHistory.length,
     });
-
-    const stdoutFd = openSync(stdoutPath, 'a');
-    const stderrFd = openSync(stderrPath, 'a');
-
-    return await new Promise<string>((resolve, reject) => {
-      let settled = false;
-      const child = spawn('pi', args, {
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          CLAUDE_MEM_PI_PROVIDER_ACTIVE: '1',
-          CLAUDE_MEM_INTERNAL_AGENT: 'pi-provider',
-        },
-        stdio: ['ignore', stdoutFd, stderrFd],
-      });
-
-      const cleanup = () => {
-        try { closeSync(stdoutFd); } catch { /* ignore */ }
-        try { closeSync(stderrFd); } catch { /* ignore */ }
-      };
-
-      const readOutput = () => ({
-        stdout: readFileSync(stdoutPath, 'utf8'),
-        stderr: readFileSync(stderrPath, 'utf8'),
-      });
-
-      const onAbort = () => {
-        if (settled) return;
-        settled = true;
-        child.kill('SIGTERM');
-        cleanup();
-        reject(new ClassifiedProviderError('Pi provider aborted', { kind: 'transient', cause: new Error('aborted') }));
-      };
-      abortController.signal.addEventListener('abort', onAbort, { once: true });
-
-      const timeout = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        child.kill('SIGTERM');
-        abortController.signal.removeEventListener('abort', onAbort);
-        const { stderr } = readOutput();
-        cleanup();
-        reject(new ClassifiedProviderError(`Pi provider timed out after ${timeoutMs}ms${stderr ? `: ${stderr.slice(-1000)}` : ''}`, { kind: 'rate_limit', cause: new Error('timeout') }));
-      }, timeoutMs);
-
-      child.on('error', (error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        abortController.signal.removeEventListener('abort', onAbort);
-        cleanup();
-        reject(new ClassifiedProviderError(`Pi provider spawn failed: ${error.message}`, { kind: 'transient', cause: error }));
-      });
-
-      child.on('exit', (code) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        abortController.signal.removeEventListener('abort', onAbort);
-        const { stdout, stderr } = readOutput();
-        cleanup();
-        if (code !== 0) {
-          const lower = `${stderr}\n${stdout}`.toLowerCase();
-          const kind = lower.includes('quota') || lower.includes('context') || lower.includes('rate limit') ? 'quota_exhausted' : 'transient';
-          reject(new ClassifiedProviderError(`Pi provider exited ${code ?? 'unknown'}: ${(stderr || stdout).slice(-2000)}`, { kind, cause: new Error(stderr || stdout) }));
-          return;
-        }
-        const text = extractAssistantTextFromJsonEvents(stdout);
-        resolve(text);
-      });
-    });
+    return { text: result.text, model: result.model };
   }
 
   private async handleSessionError(error: unknown, session: ActiveSession): Promise<never> {
@@ -324,11 +189,9 @@ export class PiProvider {
     throw error;
   }
 
-  private getPiConfig(): { model: string; thinking: string; timeoutMs: number } {
+  private getPiConfig(): { timeoutMs: number } {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
     return {
-      model: settings.CLAUDE_MEM_PI_MODEL || settings.CLAUDE_MEM_MODEL || 'openai-codex/gpt-5.3-codex-spark',
-      thinking: settings.CLAUDE_MEM_PI_THINKING || 'off',
       timeoutMs: Number.parseInt(settings.CLAUDE_MEM_PI_TIMEOUT_MS || '120000', 10) || DEFAULT_TIMEOUT_MS,
     };
   }
