@@ -120,6 +120,7 @@ export interface SettingsDefaults {
   CLAUDE_MEM_OBSERVATION_RECONCILIATION_CONCURRENCY: string;
   CLAUDE_MEM_FALLBACK_CHAIN: string;
   CLAUDE_MEM_GEMINI_CLI_MODEL: string;
+  CLAUDE_MEM_GEMINI_CLI_MIN_SPACING_MS: string;
   CLAUDE_MEM_PROVIDER_COOLDOWN_MS: string;
 }
 
@@ -238,6 +239,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_CONCURRENCY: '1',                  // Max parallel reconcile jobs processed per tick (1 = serial)
     CLAUDE_MEM_FALLBACK_CHAIN: 'gemini-cli,codex-spark,codex-mini',          // Provider fallback order; rotates on any provider error and cools each failed provider for CLAUDE_MEM_PROVIDER_COOLDOWN_MS
     CLAUDE_MEM_GEMINI_CLI_MODEL: 'gemini-2.5-flash-lite',                    // Alias accepted by gemini CLI; resolves to the current flash-lite endpoint (gemini-3.1-flash-lite as of 2026-05). Direct "gemini-3.1-flash-lite" returns "exhausted" even when quota is fine.
+    CLAUDE_MEM_GEMINI_CLI_MIN_SPACING_MS: '6100',                            // Minimum spacing between gemini-cli subprocess starts (10 RPM for flash-lite + 100ms buffer)
     CLAUDE_MEM_PROVIDER_COOLDOWN_MS: '3600000',                              // Cooldown TTL for a provider after any error (default 1h)
   };
 
