@@ -154,13 +154,19 @@ function parseLooseJson(text: string): unknown {
 }
 
 function salvageCandidateIds(text: string): { candidateIds: number[]; notes?: string } | null {
-  const match = text.match(/"candidateIds"\s*:\s*\[([^\]]*)\]/);
-  if (!match) return null;
-  const ids = match[1]
+  let inner: string | null = null;
+  const closed = text.match(/"candidateIds"\s*:\s*\[([^\]]*)\]/);
+  if (closed) {
+    inner = closed[1];
+  } else {
+    const open = text.match(/"candidateIds"\s*:\s*\[([\s\d,]*)/);
+    if (open) inner = open[1];
+  }
+  if (inner === null) return null;
+  const ids = inner
     .split(',')
     .map((s) => Number.parseInt(s.trim(), 10))
     .filter((n): n is number => Number.isFinite(n));
-  if (ids.length === 0) return { candidateIds: [] };
   return { candidateIds: ids };
 }
 
