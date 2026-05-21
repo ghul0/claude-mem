@@ -127,6 +127,7 @@ export interface SettingsDefaults {
   CLAUDE_MEM_COOLDOWN_TRANSIENT_MS: string;
   CLAUDE_MEM_COOLDOWN_UNRECOVERABLE_MS: string;
   CLAUDE_MEM_COOLDOWN_AUTH_INVALID_MS: string;
+  CLAUDE_MEM_VALIDATION_RETRIES: string;
 }
 
 export class SettingsDefaultsManager {
@@ -251,6 +252,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_COOLDOWN_TRANSIENT_MS: '90000',                               // Network/timeout/INVALID_STREAM: try again soon.
     CLAUDE_MEM_COOLDOWN_UNRECOVERABLE_MS: '3600000',                         // e.g. context window — no point retrying quickly.
     CLAUDE_MEM_COOLDOWN_AUTH_INVALID_MS: '86400000',                         // Auth needs manual fix — back off for a day.
+    CLAUDE_MEM_VALIDATION_RETRIES: '2',                                      // Max same-provider retries when validator rejects a response (0 disables the loop).
   };
 
   static getAllDefaults(): SettingsDefaults {

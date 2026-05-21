@@ -1,6 +1,6 @@
 import { logger } from '../../../utils/logger.js';
 import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager.js';
-import { globalCallerChain } from '../../worker/llm/index.js';
+import { globalCallerChain, type ResponseValidator } from '../../worker/llm/index.js';
 import type {
   CandidateSelectorRequest,
   CandidateSelectorResponse,
@@ -106,6 +106,28 @@ function buildClassifierUserPrompt(request: RelationClassifierRequest): string {
   return JSON.stringify(payload, null, 2);
 }
 
+const validateSelectorJson: ResponseValidator = (text: string) => {
+  const parsed = parseLooseJson(text);
+  if (parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).candidateIds)) {
+    return { valid: true };
+  }
+  return {
+    valid: false,
+    feedback: 'Response must be a single JSON object with key "candidateIds" (array of numbers) and optional "notes" (string). No prose, no markdown fences, no commentary outside the JSON.',
+  };
+};
+
+const validateClassifierJson: ResponseValidator = (text: string) => {
+  const parsed = parseLooseJson(text);
+  if (parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).decisions)) {
+    return { valid: true };
+  }
+  return {
+    valid: false,
+    feedback: 'Response must be a single JSON object with key "decisions" (array of {oldObservationId, relation, confidence, evidence, reason, recommendedStatus?}). No prose, no markdown fences, no commentary outside the JSON.',
+  };
+};
+
 function parseLooseJson(text: string): unknown {
   const trimmed = text.trim();
   if (!trimmed) return null;
@@ -140,7 +162,7 @@ export class PiReconciliationLlmCaller implements ReconciliationLlmCaller {
   }
 
   async selectCandidates(request: CandidateSelectorRequest): Promise<CandidateSelectorResponse> {
-    const { text, model } = await this.runChain(buildSelectorUserPrompt(request), 'reconciliation-selector');
+    const { text, model } = await this.runChain(buildSelectorUserPrompt(request), 'reconciliation-selector', validateSelectorJson);
     const parsed = parseLooseJson(text) as { candidateIds?: unknown; notes?: unknown } | null;
     if (!parsed || !Array.isArray(parsed.candidateIds)) {
       logger.warn('RECONCILE', 'Selector returned unparsable JSON', { textPreview: text.slice(0, 400) });
@@ -155,7 +177,7 @@ export class PiReconciliationLlmCaller implements ReconciliationLlmCaller {
   }
 
   async classifyRelations(request: RelationClassifierRequest): Promise<RelationClassifierResponse> {
-    const { text, model } = await this.runChain(buildClassifierUserPrompt(request), 'reconciliation-classifier');
+    const { text, model } = await this.runChain(buildClassifierUserPrompt(request), 'reconciliation-classifier', validateClassifierJson);
     const parsed = parseLooseJson(text) as { decisions?: unknown } | null;
     if (!parsed || !Array.isArray(parsed.decisions)) {
       logger.warn('RECONCILE', 'Classifier returned unparsable JSON', { textPreview: text.slice(0, 400) });
@@ -184,7 +206,7 @@ export class PiReconciliationLlmCaller implements ReconciliationLlmCaller {
     return { decisions, modelUsed: model };
   }
 
-  private async runChain(userPromptText: string, agentTag: string): Promise<{ text: string; model: string }> {
+  private async runChain(userPromptText: string, agentTag: string, validate: ResponseValidator): Promise<{ text: string; model: string }> {
     const startedAt = Date.now();
     const result = await globalCallerChain.call({
       systemPrompt: SYSTEM_PROMPT,
@@ -192,6 +214,7 @@ export class PiReconciliationLlmCaller implements ReconciliationLlmCaller {
       mode: 'json',
       timeoutMs: this.timeoutMs,
       agentTag,
+      validate,
     });
     logger.debug('RECONCILE', 'Chain returned reconciliation response', {
       provider: result.provider,

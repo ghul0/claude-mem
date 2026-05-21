@@ -1,4 +1,5 @@
 import { logger } from '../../../utils/logger.js';
+import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager.js';
 import { ClassifiedProviderError, isClassified } from '../provider-errors.js';
 import { GeminiCliCaller } from './GeminiCliCaller.js';
 import { PiCaller } from './PiCaller.js';
@@ -6,6 +7,25 @@ import { globalProviderChain, ProviderChain } from './ProviderChain.js';
 import type { LlmCallRequest, LlmCallResult, LlmCaller, ProviderId } from './types.js';
 
 const MAX_WAIT_FOR_RESET_MS = 65 * 60 * 1000;
+const DEFAULT_VALIDATION_RETRIES = 2;
+
+function buildRetryPrompt(originalPrompt: string, previousResponse: string, feedback: string, attempt: number): string {
+  return `${originalPrompt}
+
+---
+
+VALIDATION FAILED on attempt ${attempt}. Your previous response did not pass parsing.
+
+Validator feedback:
+${feedback}
+
+Your previous response (verbatim, do NOT repeat it):
+<previous_response>
+${previousResponse.slice(0, 4000)}
+</previous_response>
+
+Return ONLY the valid structured output as instructed in the system prompt. No prose preface, no markdown fences, no commentary outside the structured payload. This is your retry attempt — do not explain, just emit the correct output.`;
+}
 
 function buildCallerFor(providerId: ProviderId): LlmCaller {
   switch (providerId) {
@@ -77,7 +97,7 @@ export class CallerChain {
           attempt: attempts,
           agentTag: req.agentTag,
         });
-        const text = await caller.call(req);
+        const text = await this.callWithValidation(caller, req);
         if (attempts > 1) {
           logger.info('CHAIN', 'Recovered via fallback provider', {
             provider: next,
@@ -105,6 +125,63 @@ export class CallerChain {
       }
     }
   }
+
+  private async callWithValidation(caller: LlmCaller, req: LlmCallRequest): Promise<string> {
+    if (!req.validate) {
+      return await caller.call(req);
+    }
+
+    const maxRetries = req.maxValidationRetries ?? readDefaultValidationRetries();
+    let text = await caller.call(req);
+    let attempt = 1;
+
+    while (attempt <= maxRetries) {
+      const result = req.validate(text);
+      if (result.valid) {
+        if (attempt > 1) {
+          logger.info('CHAIN', 'Validator passed after retry', {
+            provider: caller.providerId,
+            model: caller.modelName,
+            attempt,
+            agentTag: req.agentTag,
+          });
+        }
+        return text;
+      }
+
+      logger.warn('CHAIN', 'Validator rejected response, retrying same provider with feedback', {
+        provider: caller.providerId,
+        model: caller.modelName,
+        attempt,
+        agentTag: req.agentTag,
+        feedback: (result.feedback ?? '').slice(0, 240),
+        previewBytes: text.length,
+      });
+
+      const retryPrompt = buildRetryPrompt(req.userPrompt, text, result.feedback ?? 'Response did not match the required format.', attempt);
+      attempt += 1;
+      text = await caller.call({ ...req, userPrompt: retryPrompt });
+    }
+
+    const finalResult = req.validate(text);
+    if (finalResult.valid) {
+      logger.info('CHAIN', 'Validator passed on final retry', {
+        provider: caller.providerId,
+        model: caller.modelName,
+        attempts: attempt,
+        agentTag: req.agentTag,
+      });
+    } else {
+      logger.warn('CHAIN', 'Validator still failing after max retries; passing last response downstream', {
+        provider: caller.providerId,
+        model: caller.modelName,
+        attempts: attempt,
+        agentTag: req.agentTag,
+        feedback: (finalResult.feedback ?? '').slice(0, 240),
+      });
+    }
+    return text;
+  }
 }
 
 function waitWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
@@ -123,6 +200,12 @@ function waitWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
     };
     signal?.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+function readDefaultValidationRetries(): number {
+  const raw = SettingsDefaultsManager.getInt('CLAUDE_MEM_VALIDATION_RETRIES');
+  if (Number.isFinite(raw) && raw >= 0) return raw;
+  return DEFAULT_VALIDATION_RETRIES;
 }
 
 export const globalCallerChain = new CallerChain();

@@ -118,6 +118,7 @@ export class SettingsRoutes extends BaseRouteHandler {
       'CLAUDE_MEM_COOLDOWN_TRANSIENT_MS',
       'CLAUDE_MEM_COOLDOWN_UNRECOVERABLE_MS',
       'CLAUDE_MEM_COOLDOWN_AUTH_INVALID_MS',
+      'CLAUDE_MEM_VALIDATION_RETRIES',
     ];
 
     for (const key of settingKeys) {

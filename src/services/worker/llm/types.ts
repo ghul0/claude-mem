@@ -6,6 +6,13 @@ export function isProviderId(value: string): value is ProviderId {
   return (ALL_PROVIDER_IDS as string[]).includes(value);
 }
 
+export interface ValidationResult {
+  valid: boolean;
+  feedback?: string;
+}
+
+export type ResponseValidator = (text: string) => ValidationResult;
+
 export interface LlmCallRequest {
   systemPrompt: string;
   userPrompt: string;
@@ -13,6 +20,8 @@ export interface LlmCallRequest {
   timeoutMs: number;
   abortSignal?: AbortSignal;
   agentTag?: string;
+  validate?: ResponseValidator;
+  maxValidationRetries?: number;
 }
 
 export interface LlmCallResult {

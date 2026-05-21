@@ -1,4 +1,5 @@
 import { buildContinuationPrompt, buildInitPrompt, buildObservationPrompt, buildSummaryPrompt } from '../../sdk/prompts.js';
+import { parseAgentXml } from '../../sdk/parser.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
@@ -9,7 +10,17 @@ import { DatabaseManager } from './DatabaseManager.js';
 import { SessionManager } from './SessionManager.js';
 import { isAbortError, processAgentResponse, type WorkerRef } from './agents/index.js';
 import { ClassifiedProviderError } from './provider-errors.js';
-import { globalCallerChain } from './llm/index.js';
+import { globalCallerChain, type ResponseValidator } from './llm/index.js';
+
+const validatePiOutput: ResponseValidator = (text: string) => {
+  if (!text.trim()) return { valid: true };
+  const parsed = parseAgentXml(text);
+  if (parsed.valid) return { valid: true };
+  return {
+    valid: false,
+    feedback: 'Response must be either one or more <observation>...</observation> blocks OR a single <summary>...</summary> block (matching the schema in the system prompt). No prose, no markdown code fences, no commentary outside the XML. If there is genuinely nothing durable to record, return an empty response instead — but never plain text.',
+  };
+};
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_CONTEXT_MESSAGES = 20;
@@ -169,6 +180,7 @@ export class PiProvider {
       timeoutMs,
       abortSignal: abortController.signal,
       agentTag,
+      validate: validatePiOutput,
     });
     logger.debug('SDK', 'CallerChain returned response', {
       provider: result.provider,
