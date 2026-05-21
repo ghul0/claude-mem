@@ -142,11 +142,73 @@ function parseLooseJson(text: string): unknown {
       try {
         return JSON.parse(candidate.slice(firstBrace, lastBrace + 1));
       } catch {
-        return null;
+        // Fall through to truncation salvage below.
       }
     }
+    const candidateIdsSalvage = salvageCandidateIds(candidate);
+    if (candidateIdsSalvage) return candidateIdsSalvage;
+    const decisionsSalvage = salvageDecisions(candidate);
+    if (decisionsSalvage) return decisionsSalvage;
     return null;
   }
+}
+
+function salvageCandidateIds(text: string): { candidateIds: number[]; notes?: string } | null {
+  const match = text.match(/"candidateIds"\s*:\s*\[([^\]]*)\]/);
+  if (!match) return null;
+  const ids = match[1]
+    .split(',')
+    .map((s) => Number.parseInt(s.trim(), 10))
+    .filter((n): n is number => Number.isFinite(n));
+  if (ids.length === 0) return { candidateIds: [] };
+  return { candidateIds: ids };
+}
+
+function salvageDecisions(text: string): { decisions: unknown[] } | null {
+  const arrayStart = text.search(/"decisions"\s*:\s*\[/);
+  if (arrayStart === -1) return null;
+  const bracketStart = text.indexOf('[', arrayStart);
+  if (bracketStart === -1) return null;
+  const decisions: unknown[] = [];
+  let i = bracketStart + 1;
+  while (i < text.length) {
+    while (i < text.length && /\s|,/.test(text[i])) i += 1;
+    if (i >= text.length || text[i] === ']') break;
+    if (text[i] !== '{') break;
+    const start = i;
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    while (i < text.length) {
+      const ch = text[i];
+      if (escape) {
+        escape = false;
+      } else if (ch === '\\') {
+        escape = true;
+      } else if (ch === '"') {
+        inString = !inString;
+      } else if (!inString) {
+        if (ch === '{') depth += 1;
+        else if (ch === '}') {
+          depth -= 1;
+          if (depth === 0) {
+            i += 1;
+            break;
+          }
+        }
+      }
+      i += 1;
+    }
+    if (depth !== 0) break;
+    const objText = text.slice(start, i);
+    try {
+      decisions.push(JSON.parse(objText));
+    } catch {
+      break;
+    }
+  }
+  if (decisions.length === 0) return null;
+  return { decisions };
 }
 
 export interface PiCallerOptions {

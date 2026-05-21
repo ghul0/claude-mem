@@ -10,21 +10,16 @@ const MAX_WAIT_FOR_RESET_MS = 65 * 60 * 1000;
 const DEFAULT_VALIDATION_RETRIES = 2;
 
 function buildRetryPrompt(originalPrompt: string, previousResponse: string, feedback: string, attempt: number): string {
+  const preview = previousResponse.slice(0, 240).replace(/\s+/g, ' ').trim();
   return `${originalPrompt}
 
 ---
 
-VALIDATION FAILED on attempt ${attempt}. Your previous response did not pass parsing.
+VALIDATION FAILED (retry ${attempt}). The previous response started with: "${preview}..."
 
-Validator feedback:
-${feedback}
+Reason: ${feedback}
 
-Your previous response (verbatim, do NOT repeat it):
-<previous_response>
-${previousResponse.slice(0, 4000)}
-</previous_response>
-
-Return ONLY the valid structured output as instructed in the system prompt. No prose preface, no markdown fences, no commentary outside the structured payload. This is your retry attempt — do not explain, just emit the correct output.`;
+Emit ONLY the structured output specified in the system prompt. No prose, no markdown fences, no commentary, no truncation — produce the complete payload, keep "notes"/"reason" strings short (max 200 chars) so the output fits in the model's token budget. Do not echo the original prompt. Do not explain.`;
 }
 
 function buildCallerFor(providerId: ProviderId): LlmCaller {
