@@ -54,8 +54,12 @@ function extractAssistantTextFromJsonEvents(stdout: string): PiJsonExtractionRes
       // Ignore non-JSON lines.
     }
   }
+  const longestFinal = finalChunks.reduce(
+    (best, current) => (current.length > best.length ? current : best),
+    '',
+  );
   return {
-    text: finalChunks.join('\n').trim() || deltaChunks.join('').trim(),
+    text: longestFinal.trim() || deltaChunks.join('').trim(),
     errorMessage,
   };
 }
