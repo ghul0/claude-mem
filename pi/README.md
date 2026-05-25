@@ -8,7 +8,7 @@ Native Pi integration for claude-mem. The integration is intentionally opt-in: n
 
 ```bash
 pi -e /home/nixen/tools/claude-mem/pi/index.ts \
-   -e /home/nixen/.npm-global/lib/node_modules/pi-mcp-adapter "$@"
+   -e /home/nixen/tools/pi/pi-mcp-adapter/index.ts "$@"
 ```
 
 `pi-brain` = Pi + claude-mem + Open Brain + MCP adapter.
@@ -16,7 +16,7 @@ pi -e /home/nixen/tools/claude-mem/pi/index.ts \
 ```bash
 pi -e /home/nixen/tools/claude-mem/pi/index.ts \
    -e ~/.pi/extensions/openbrain/index.ts \
-   -e /home/nixen/.npm-global/lib/node_modules/pi-mcp-adapter "$@"
+   -e /home/nixen/tools/pi/pi-mcp-adapter/index.ts "$@"
 ```
 
 If you need a non-local path, replace the extension paths with your installed package locations.

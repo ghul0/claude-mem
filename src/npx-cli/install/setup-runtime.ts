@@ -471,6 +471,7 @@ export function readInstallMarker(targetDir: string): MarkerSchema | null {
     // Legacy installs wrote only the version string as plain text.
   }
 
+  // Handle legacy plain-text marker format (version string only)
   const legacyVersion = content.trim();
   if (LEGACY_VERSION_MARKER_RE.test(legacyVersion)) {
     return { version: legacyVersion.replace(/^v/i, '') };

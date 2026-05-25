@@ -1004,22 +1004,27 @@ export class MigrationRunner {
       return;
     }
 
-    this.db.run(`DELETE FROM pending_messages WHERE status NOT IN ('pending', 'processing')`);
+    this.db.run('BEGIN TRANSACTION');
+    try {
+      this.db.run(`DELETE FROM pending_messages WHERE status NOT IN ('pending', 'processing')`);
 
-    if (toDrop.includes('worker_pid')) {
-      this.db.run('DROP INDEX IF EXISTS idx_pending_messages_worker_pid');
-    }
+      if (toDrop.includes('worker_pid')) {
+        this.db.run('DROP INDEX IF EXISTS idx_pending_messages_worker_pid');
+      }
 
-    for (const colName of toDrop) {
-      try {
+      for (const colName of toDrop) {
         this.db.run(`ALTER TABLE pending_messages DROP COLUMN ${colName}`);
         logger.debug('DB', `Dropped dead column ${colName} from pending_messages`);
-      } catch (error) {
-        logger.warn('DB', `Failed to drop column ${colName} from pending_messages`, {}, error instanceof Error ? error : new Error(String(error)));
       }
-    }
 
-    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(31, new Date().toISOString());
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(31, new Date().toISOString());
+      this.db.run('COMMIT');
+      logger.debug('DB', 'Successfully dropped dead columns from pending_messages');
+    } catch (error) {
+      this.db.run('ROLLBACK');
+      logger.error('DB', `Migration 31 failed: ${String(error)}`, {}, error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
   }
 
   private dropWorkerPidColumn(): void {
