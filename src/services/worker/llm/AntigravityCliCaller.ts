@@ -52,6 +52,43 @@ function tryReadSelectedModel(profile: string): string | null {
 
 const MIN_SPACING_MS_DEFAULT = 2000;
 const perProfileGates: Map<string, { lastStart: number; chain: Promise<void> }> = new Map();
+
+interface SchemaMarker {
+  requiredKey: string;
+  requiredItemKeys?: string[];
+  maxRetries?: number;
+  feedback: string;
+}
+
+const SCHEMA_MARKERS: Record<string, SchemaMarker> = {
+  'reconciliation-selector': {
+    requiredKey: 'candidateIds',
+    requiredItemKeys: [],
+    maxRetries: 6,
+    feedback:
+      'WRONG SHAPE. Required EXACTLY: {"candidateIds":[<number>,<number>,...],"notes":"<string-optional>"}. ' +
+      'Top-level key MUST be literally "candidateIds" (camelCase, plural). ' +
+      'Value MUST be a JSON array of plain integers — observation IDs from the input candidates list. ' +
+      'DO NOT use alternative keys like "relations", "reconciliations", "reconciledObservations", "candidates", "items", "matches", "decisions". ' +
+      'DO NOT return full objects — just integer IDs. ' +
+      'DO NOT classify or explain relationships — that is a separate later step. ' +
+      'Example valid output: {"candidateIds":[52378,52232,49386],"notes":"selected by topical overlap"}. ' +
+      'Emit ONLY that JSON object. No prose, no markdown fences, no commentary.',
+  },
+  'reconciliation-classifier': {
+    requiredKey: 'decisions',
+    requiredItemKeys: ['oldObservationId', 'relation', 'confidence', 'evidence', 'reason'],
+    maxRetries: 6,
+    feedback:
+      'WRONG SHAPE. Required EXACTLY: {"decisions":[{"oldObservationId":<number>,"relation":"<supersedes|contradicts|weakens|confirms|no_relation>","confidence":<0..1>,"evidence":"<string>","reason":"<string>","recommendedStatus":"<active|weak|stale|superseded|deprecated>"},...]}. ' +
+      'Top-level key MUST be literally "decisions" (lowercase, plural). ' +
+      'Each item MUST use these exact field names: oldObservationId, relation, confidence, evidence, reason, recommendedStatus. ' +
+      'DO NOT use alternative keys like "relations", "reconciliations", "candidate_id", "relationship", "explanation", "status". ' +
+      'Example: {"decisions":[{"oldObservationId":49386,"relation":"confirms","confidence":0.95,"evidence":"file path X matches","reason":"same bug","recommendedStatus":"active"}]}. ' +
+      'Emit ONLY that JSON object. No prose, no markdown fences, no commentary.',
+  },
+};
+
 function getRateGate(profile: string) {
   let g = perProfileGates.get(profile);
   if (!g) {
@@ -120,11 +157,17 @@ export class AntigravityCliCaller implements LlmCaller {
     writeFileSync(stdoutPath, '', 'utf8');
     writeFileSync(stderrPath, '', 'utf8');
 
+    const marker = SCHEMA_MARKERS[req.agentTag ?? ''];
+    if (marker) {
+      writeFileSync(join(tempDir, '.cm-schema-marker.json'), JSON.stringify(marker), 'utf8');
+    }
+
     const combined = `${SYSTEM_PROMPT_PREFIX}${req.systemPrompt.trim()}\n\n---\n\n${req.userPrompt}`;
 
     const args = [
       `--gemini_dir=${join(homedir(), '.gemini')}`,
       `--app_data_dir=cm-${this.profile}`,
+      `--add-dir=${tempDir}`,
       '--dangerously-skip-permissions',
       '--print',
       combined,
@@ -134,6 +177,7 @@ export class AntigravityCliCaller implements LlmCaller {
       profile: this.profile,
       userPromptBytes: req.userPrompt.length,
       agentTag: req.agentTag,
+      schemaMarker: marker ? marker.requiredKey : null,
     });
 
     const stdoutFd = openSync(stdoutPath, 'a');
