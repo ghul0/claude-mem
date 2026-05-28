@@ -14,6 +14,7 @@ import {
 } from '../../types/database.js';
 import type { ObservationSearchResult, SessionSummarySearchResult } from './types.js';
 import { computeObservationContentHash } from './observations/store.js';
+import { parseStatusFilter, buildStatusSqlClause } from './reconciliation/status-filter.js';
 import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource, sortPlatformSources } from '../../shared/platform-source.js';
 import { findRecentDuplicateUserPrompt as findRecentDuplicateUserPromptRecord } from './prompts/get.js';
 import { normalizeStoredPromptText } from './prompt-storage.js';
@@ -1784,6 +1785,13 @@ export class SessionStore {
         params.push(`%${file}%`, `%${file}%`);
       });
       additionalConditions.push(`(${fileConditions.join(' OR ')})`);
+    }
+
+    const statusFilter = parseStatusFilter(undefined);
+    if (statusFilter.filterApplied) {
+      const clause = buildStatusSqlClause(statusFilter.statuses);
+      additionalConditions.push(clause.sql);
+      params.push(...clause.params);
     }
 
     const whereClause = additionalConditions.length > 0
