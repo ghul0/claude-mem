@@ -4,6 +4,7 @@ import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { logger } from '../../utils/logger.js';
 import { contextHandler } from './context.js';
 import { sessionInitHandler } from './session-init.js';
+import { sessionEndHandler } from './session-end.js';
 import { observationHandler } from './observation.js';
 import { summarizeHandler } from './summarize.js';
 import { userMessageHandler } from './user-message.js';
@@ -11,17 +12,19 @@ import { fileEditHandler } from './file-edit.js';
 import { fileContextHandler } from './file-context.js';
 
 export type EventType =
-  | 'context'           
-  | 'session-init'      
-  | 'observation'       
-  | 'summarize'         
-  | 'user-message'      
-  | 'file-edit'         
-  | 'file-context';     
+  | 'context'
+  | 'session-init'
+  | 'session-end'
+  | 'observation'
+  | 'summarize'
+  | 'user-message'
+  | 'file-edit'
+  | 'file-context';
 
 const handlers: Record<EventType, EventHandler> = {
   'context': contextHandler,
   'session-init': sessionInitHandler,
+  'session-end': sessionEndHandler,
   'observation': observationHandler,
   'summarize': summarizeHandler,
   'user-message': userMessageHandler,
@@ -44,6 +47,7 @@ export function getEventHandler(eventType: string): EventHandler {
 
 export { contextHandler } from './context.js';
 export { sessionInitHandler } from './session-init.js';
+export { sessionEndHandler } from './session-end.js';
 export { observationHandler } from './observation.js';
 export { summarizeHandler } from './summarize.js';
 export { userMessageHandler } from './user-message.js';

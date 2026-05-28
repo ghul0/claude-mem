@@ -280,7 +280,46 @@ export class SessionRoutes extends BaseRouteHandler {
       validateBody(SessionRoutes.summarizeByClaudeIdSchema),
       this.handleSummarizeByClaudeId.bind(this)
     );
+    app.get('/api/sessions/status', this.handleStatusByClaudeId.bind(this));
+    app.post(
+      '/api/sessions/finalize',
+      validateBody(SessionRoutes.finalizeByClaudeIdSchema),
+      this.handleFinalizeByClaudeId.bind(this)
+    );
   }
+
+  private static readonly finalizeByClaudeIdSchema = z.object({
+    contentSessionId: z.string().min(1),
+    reason: z.string().optional(),
+  }).passthrough();
+
+  private handleFinalizeByClaudeId = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
+    const { contentSessionId, reason } = req.body as { contentSessionId: string; reason?: string };
+    const store = this.dbManager.getSessionStore();
+
+    const rows = store.db.prepare(
+      `SELECT id FROM sdk_sessions WHERE content_session_id = ? AND status = 'active'`
+    ).all(contentSessionId) as Array<{ id: number }>;
+
+    let finalized = 0;
+    for (const row of rows) {
+      try {
+        await this.completionHandler.finalizeSession(row.id);
+        this.sessionManager.removeSessionImmediate(row.id);
+        finalized++;
+      } catch (e) {
+        logger.warn('SESSION', 'finalize failed', {
+          sessionDbId: row.id,
+          contentSessionId,
+        }, e instanceof Error ? e : new Error(String(e)));
+      }
+    }
+
+    logger.info('SESSION', 'Session finalized via /api/sessions/finalize', {
+      contentSessionId, reason, finalized,
+    });
+    res.json({ status: 'finalized', finalized, reason: reason ?? null });
+  });
 
   private static readonly sessionInitByClaudeIdSchema = z.object({
     contentSessionId: z.string().min(1),

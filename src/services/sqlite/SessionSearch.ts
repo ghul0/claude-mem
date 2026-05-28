@@ -4,6 +4,7 @@ import { DATA_DIR, DB_PATH, ensureDir } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 import { isDirectChild } from '../../shared/path-utils.js';
 import { AppError } from '../server/ErrorHandler.js';
+import { parseStatusFilter, buildStatusSqlClause } from './reconciliation/status-filter.js';
 import {
   ObservationSearchResult,
   SessionSummarySearchResult,
@@ -225,6 +226,17 @@ export class SessionSearch {
         files.forEach(file => {
           params.push(`%${file}%`, `%${file}%`);
         });
+      }
+    }
+
+    if (tableAlias === 'o') {
+      const statusFilter = parseStatusFilter(undefined);
+      if (statusFilter.filterApplied) {
+        const clause = buildStatusSqlClause(statusFilter.statuses, {
+          columnExpr: `COALESCE(${tableAlias}.status, 'active')`,
+        });
+        conditions.push(clause.sql);
+        params.push(...clause.params);
       }
     }
 

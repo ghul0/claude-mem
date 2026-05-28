@@ -227,6 +227,7 @@ export class WorkerService implements WorkerRef {
   private transcriptWatcher: TranscriptWatcher | null = null;
   private reconcileWorker: ReconcileWorker | null = null;
   private orphanResumeTimer: ReturnType<typeof setInterval> | null = null;
+  private staleSessionSweepTimer: ReturnType<typeof setInterval> | null = null;
   private initializationComplete: Promise<void>;
   private resolveInitialization!: () => void;
 
@@ -640,6 +641,11 @@ export class WorkerService implements WorkerRef {
       this.resumeOrphanSessions();
       this.orphanResumeTimer = setInterval(() => this.resumeOrphanSessions(), 60_000);
 
+      void this.sweepStaleActiveSessions();
+      this.staleSessionSweepTimer = setInterval(() => {
+        void this.sweepStaleActiveSessions();
+      }, 5 * 60_000);
+
       await this.startTranscriptWatcher(settings);
 
       if (this.chromaMcpManager) {
@@ -669,13 +675,21 @@ export class WorkerService implements WorkerRef {
     }
   }
 
+  private static readonly STALE_SESSION_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+
   private resumeOrphanSessions(): void {
     if (!this.sessionRoutes) return;
     try {
       const db = this.dbManager.getSessionStore().db;
-      const rows = db.prepare(
-        "SELECT DISTINCT session_db_id FROM pending_messages WHERE status = 'pending'"
-      ).all() as Array<{ session_db_id: number }>;
+      const cutoff = Date.now() - WorkerService.STALE_SESSION_THRESHOLD_MS;
+      const rows = db.prepare(`
+        SELECT DISTINCT pm.session_db_id
+        FROM pending_messages pm
+        JOIN sdk_sessions s ON s.id = pm.session_db_id
+        WHERE pm.status = 'pending'
+          AND s.status = 'active'
+          AND s.started_at_epoch > ?
+      `).all(cutoff) as Array<{ session_db_id: number }>;
 
       let resumed = 0;
       for (const { session_db_id } of rows) {
@@ -707,6 +721,39 @@ export class WorkerService implements WorkerRef {
         {},
         error instanceof Error ? error : new Error(String(error))
       );
+    }
+  }
+
+  private async sweepStaleActiveSessions(): Promise<void> {
+    try {
+      const db = this.dbManager.getSessionStore().db;
+      const cutoff = Date.now() - WorkerService.STALE_SESSION_THRESHOLD_MS;
+      const stale = db.prepare(`
+        SELECT id FROM sdk_sessions
+         WHERE status = 'active'
+           AND started_at_epoch < ?
+      `).all(cutoff) as Array<{ id: number }>;
+
+      if (stale.length === 0) return;
+
+      let finalized = 0;
+      for (const { id } of stale) {
+        try {
+          await this.completionHandler.finalizeSession(id);
+          this.sessionManager.removeSessionImmediate(id);
+          finalized++;
+        } catch (e) {
+          logger.warn('SYSTEM', `Stale session sweep: finalize failed for ${id}`, {},
+            e instanceof Error ? e : new Error(String(e)));
+        }
+      }
+
+      logger.info('SYSTEM', `Stale session sweep: finalized ${finalized} of ${stale.length} candidates`, {
+        thresholdHours: WorkerService.STALE_SESSION_THRESHOLD_MS / 3_600_000,
+      });
+    } catch (error) {
+      logger.error('SYSTEM', 'Stale session sweep failed', {},
+        error instanceof Error ? error : new Error(String(error)));
     }
   }
 

@@ -22,6 +22,7 @@ export const claudeCodeAdapter: PlatformAdapter = {
       transcriptPath: r.transcript_path,
       agentId: pickAgentField(r.agent_id),
       agentType: pickAgentField(r.agent_type),
+      reason: typeof r.reason === 'string' ? r.reason : undefined,
     };
   },
   formatOutput(result) {

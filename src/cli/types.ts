@@ -15,8 +15,10 @@ export interface NormalizedHookInput {
   sessionSource?: 'startup' | 'resume' | 'clear';
   filePath?: string;
   edits?: unknown[];
+  metadata?: Record<string, unknown>;
   agentId?: string;
-  agentType?: string;    
+  agentType?: string;
+  reason?: string;
 }
 
 export interface HookResult {
