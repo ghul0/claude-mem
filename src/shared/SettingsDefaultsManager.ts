@@ -121,6 +121,7 @@ export interface SettingsDefaults {
   CLAUDE_MEM_FALLBACK_CHAIN: string;
   CLAUDE_MEM_GEMINI_CLI_MODEL: string;
   CLAUDE_MEM_GEMINI_CLI_MIN_SPACING_MS: string;
+  CLAUDE_MEM_ANTIGRAVITY_CLI_MIN_SPACING_MS: string;
   CLAUDE_MEM_PROVIDER_COOLDOWN_MS: string;
   CLAUDE_MEM_COOLDOWN_QUOTA_EXHAUSTED_MS: string;
   CLAUDE_MEM_COOLDOWN_RATE_LIMIT_MS: string;
@@ -244,8 +245,9 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_KILL_SWITCH: 'false',              // Global kill-switch: when true, halt all reconcile jobs without disabling master flag
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_CONCURRENCY: '1',                  // Max parallel reconcile jobs processed per tick (1 = serial)
     CLAUDE_MEM_FALLBACK_CHAIN: 'gemini-cli,codex-spark,codex-mini',          // Provider fallback order; rotates on any provider error and cools each failed provider for CLAUDE_MEM_PROVIDER_COOLDOWN_MS
-    CLAUDE_MEM_GEMINI_CLI_MODEL: 'gemini-2.5-flash-lite',                    // Alias accepted by gemini CLI; resolves to the current flash-lite endpoint (gemini-3.1-flash-lite as of 2026-05). Direct "gemini-3.1-flash-lite" returns "exhausted" even when quota is fine.
-    CLAUDE_MEM_GEMINI_CLI_MIN_SPACING_MS: '6100',                            // Minimum spacing between gemini-cli subprocess starts (10 RPM for flash-lite + 100ms buffer)
+    CLAUDE_MEM_GEMINI_CLI_MODEL: 'gemini-2.5-flash-lite',                    // Legacy; only honored if a caller explicitly invokes the removed GeminiCliCaller. Replaced by antigravity-tm/ghul auto-routing.
+    CLAUDE_MEM_GEMINI_CLI_MIN_SPACING_MS: '6100',                            // Legacy; see CLAUDE_MEM_ANTIGRAVITY_CLI_MIN_SPACING_MS for the active rate gate.
+    CLAUDE_MEM_ANTIGRAVITY_CLI_MIN_SPACING_MS: '2000',                       // Per-profile minimum spacing between agy --print subprocess starts. Antigravity manages per-model quota internally; this protects against socket churn.
     CLAUDE_MEM_PROVIDER_COOLDOWN_MS: '3600000',                              // Legacy/unused — kept for backwards compatibility; per-kind cooldowns below override.
     CLAUDE_MEM_COOLDOWN_QUOTA_EXHAUSTED_MS: '3600000',                       // Quota exhausted floor (1h). retryAfterMs from error response (e.g. codex resets_in_seconds) extends this when longer.
     CLAUDE_MEM_COOLDOWN_RATE_LIMIT_MS: '60000',                              // Per-minute throttle: 60s gets us past one bucket.

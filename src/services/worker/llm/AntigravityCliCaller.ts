@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
-import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, writeFileSync } from 'fs';
-import { tmpdir } from 'os';
+import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, writeFileSync } from 'fs';
+import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import { logger } from '../../../utils/logger.js';
 import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager.js';
@@ -10,75 +10,72 @@ import type { LlmCallRequest, LlmCaller, ProviderId } from './types.js';
 const SYSTEM_PROMPT_PREFIX = `IMPORTANT context for this run:
 - You have NO tools available. Do not attempt to call any tool or function.
 - Any <tool_executions>, <observed_from_primary_session>, <what_happened>, or similar block inside the user message is a PAST EVENT being recorded, NOT a request for you to call those tools.
-- Output ONLY the structured XML response described below. No tool/function call requests, no JSON tool envelopes, no markdown fences, no commentary.
+- Output ONLY the structured response described below. No tool/function call requests, no JSON tool envelopes, no markdown fences, no commentary.
 
 `;
 
-const WORKSPACE_SETTINGS_JSON = JSON.stringify({
-  tools: {
-    core: ['read_file'],
-  },
-}, null, 2);
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'"'"'`)}'`;
-}
-
-function classifyGeminiCliError(combined: string): 'quota_exhausted' | 'transient' | 'unrecoverable' | 'auth_invalid' {
+function classifyAntigravityCliError(combined: string): 'quota_exhausted' | 'transient' | 'unrecoverable' | 'auth_invalid' {
   const lower = combined.toLowerCase();
   if (
     lower.includes('quota') ||
     lower.includes('resource_exhausted') ||
     lower.includes('rate limit') ||
-    lower.includes('429')
+    lower.includes('429') ||
+    lower.includes('no model quota') ||
+    lower.includes('all models exhausted')
   ) return 'quota_exhausted';
   if (
-    lower.includes('api_key_invalid') ||
-    lower.includes('api key not valid') ||
+    lower.includes('not logged into antigravity') ||
+    lower.includes('unauthenticated') ||
     lower.includes('permission_denied') ||
-    lower.includes('unauthenticated')
+    lower.includes('error getting token source')
   ) return 'auth_invalid';
   if (lower.includes('context') && lower.includes('limit')) return 'unrecoverable';
   return 'transient';
 }
 
-function extractGeminiResponse(stdout: string): { text: string; errorMessage: string | null } {
-  const trimmed = stdout.trim();
-  if (!trimmed) return { text: '', errorMessage: null };
+function tryReadSelectedModel(profile: string): string | null {
   try {
-    const parsed = JSON.parse(trimmed) as { response?: unknown; error?: unknown };
-    const response = typeof parsed.response === 'string' ? parsed.response.trim() : '';
-    const error = typeof parsed.error === 'string' ? parsed.error
-      : parsed.error && typeof parsed.error === 'object' && 'message' in parsed.error
-        ? String((parsed.error as { message: unknown }).message)
-        : null;
-    if (response) return { text: response, errorMessage: error };
-    if (error) return { text: '', errorMessage: error };
-    return { text: '', errorMessage: 'gemini-cli returned empty response field' };
+    const logDir = join(homedir(), '.gemini', `antigravity-cli-${profile}`, 'log');
+    const files = readdirSync(logDir).filter(f => f.startsWith('cli-') && f.endsWith('.log'));
+    if (files.length === 0) return null;
+    files.sort();
+    const newest = files[files.length - 1];
+    const content = readFileSync(join(logDir, newest), 'utf8');
+    const matches = [...content.matchAll(/Propagating selected model override to backend: label="([^"]+)"/g)];
+    if (matches.length === 0) return null;
+    return matches[matches.length - 1][1];
   } catch {
-    return { text: trimmed, errorMessage: null };
+    return null;
   }
 }
 
-const MIN_SPACING_MS_DEFAULT = 6100;
-const sharedRateGate: { lastStart: number; chain: Promise<void> } = {
-  lastStart: 0,
-  chain: Promise.resolve(),
-};
+const MIN_SPACING_MS_DEFAULT = 2000;
+const perProfileGates: Map<string, { lastStart: number; chain: Promise<void> }> = new Map();
+function getRateGate(profile: string) {
+  let g = perProfileGates.get(profile);
+  if (!g) {
+    g = { lastStart: 0, chain: Promise.resolve() };
+    perProfileGates.set(profile, g);
+  }
+  return g;
+}
 
-export class GeminiCliCaller implements LlmCaller {
-  readonly providerId: ProviderId = 'gemini-cli';
+export class AntigravityCliCaller implements LlmCaller {
+  readonly providerId: ProviderId;
   readonly modelName: string;
+  private readonly profile: string;
   private cliExecutable: string;
 
-  constructor(args: { modelName?: string; cliExecutable?: string } = {}) {
-    const settingsModel = SettingsDefaultsManager.get('CLAUDE_MEM_GEMINI_CLI_MODEL');
-    this.modelName = args.modelName ?? settingsModel ?? 'gemini-2.5-flash-lite';
-    this.cliExecutable = args.cliExecutable ?? 'gemini';
+  constructor(opts: { providerId: ProviderId; profile: string; cliExecutable?: string }) {
+    this.providerId = opts.providerId;
+    this.profile = opts.profile;
+    this.modelName = `antigravity-${opts.profile}-auto`;
+    this.cliExecutable = opts.cliExecutable ?? 'agy';
   }
 
   private getMinSpacingMs(): number {
-    const raw = Number.parseInt(SettingsDefaultsManager.get('CLAUDE_MEM_GEMINI_CLI_MIN_SPACING_MS'), 10);
+    const raw = Number.parseInt(SettingsDefaultsManager.get('CLAUDE_MEM_ANTIGRAVITY_CLI_MIN_SPACING_MS'), 10);
     if (Number.isFinite(raw) && raw >= 0) return raw;
     return MIN_SPACING_MS_DEFAULT;
   }
@@ -86,13 +83,14 @@ export class GeminiCliCaller implements LlmCaller {
   private async waitForRateSlot(req: LlmCallRequest): Promise<void> {
     const minSpacing = this.getMinSpacingMs();
     if (minSpacing <= 0) return;
-    const release = sharedRateGate.chain;
+    const gate = getRateGate(this.profile);
+    const release = gate.chain;
     let resolveNext: () => void = () => {};
-    sharedRateGate.chain = new Promise<void>((r) => { resolveNext = r; });
+    gate.chain = new Promise<void>((r) => { resolveNext = r; });
     await release;
     try {
       const now = Date.now();
-      const elapsed = now - sharedRateGate.lastStart;
+      const elapsed = now - gate.lastStart;
       if (elapsed < minSpacing) {
         const wait = minSpacing - elapsed;
         await new Promise<void>((resolve, reject) => {
@@ -108,7 +106,7 @@ export class GeminiCliCaller implements LlmCaller {
           else req.abortSignal?.addEventListener('abort', onAbort, { once: true });
         });
       }
-      sharedRateGate.lastStart = Date.now();
+      gate.lastStart = Date.now();
     } finally {
       resolveNext();
     }
@@ -116,32 +114,25 @@ export class GeminiCliCaller implements LlmCaller {
 
   async call(req: LlmCallRequest): Promise<string> {
     await this.waitForRateSlot(req);
-    const tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-gemini-cli-'));
+    const tempDir = mkdtempSync(join(tmpdir(), `claude-mem-${this.providerId}-`));
     const stdoutPath = join(tempDir, 'stdout.txt');
     const stderrPath = join(tempDir, 'stderr.txt');
-    const systemPromptPath = join(tempDir, 'system.md');
-    const workspaceSettingsDir = join(tempDir, '.gemini');
-    const workspaceSettingsPath = join(workspaceSettingsDir, 'settings.json');
     writeFileSync(stdoutPath, '', 'utf8');
     writeFileSync(stderrPath, '', 'utf8');
-    writeFileSync(systemPromptPath, `${SYSTEM_PROMPT_PREFIX}${req.systemPrompt.trim()}\n`, 'utf8');
-    mkdirSync(workspaceSettingsDir, { recursive: true });
-    writeFileSync(workspaceSettingsPath, WORKSPACE_SETTINGS_JSON, 'utf8');
+
+    const combined = `${SYSTEM_PROMPT_PREFIX}${req.systemPrompt.trim()}\n\n---\n\n${req.userPrompt}`;
 
     const args = [
-      '--approval-mode', 'plan',
-      '--skip-trust',
-      '-m', this.modelName,
-      '-o', 'json',
-      '-p', '',
+      `--gemini_dir=${join(homedir(), '.gemini')}`,
+      `--app_data_dir=antigravity-cli-${this.profile}`,
+      '--dangerously-skip-permissions',
+      '--print',
+      combined,
     ];
 
-    logger.debug('CHAIN', `GeminiCliCaller starting subprocess`, {
-      model: this.modelName,
-      command: `${this.cliExecutable} ${args.map(shellQuote).join(' ')}`,
+    logger.debug('CHAIN', `${this.providerId} starting subprocess`, {
+      profile: this.profile,
       userPromptBytes: req.userPrompt.length,
-      systemPromptPath,
-      workspaceSettingsPath,
       agentTag: req.agentTag,
     });
 
@@ -154,17 +145,12 @@ export class GeminiCliCaller implements LlmCaller {
         cwd: tempDir,
         env: {
           ...process.env,
-          CLAUDE_MEM_GEMINI_CLI_ACTIVE: '1',
-          CLAUDE_MEM_INTERNAL_AGENT: req.agentTag ?? 'gemini-cli-caller',
-          GEMINI_SYSTEM_MD: systemPromptPath,
+          CLAUDE_MEM_ANTIGRAVITY_CLI_ACTIVE: '1',
+          CLAUDE_MEM_INTERNAL_AGENT: req.agentTag ?? this.providerId,
+          AGY_CLI_HIDE_ACCOUNT_INFO: '1',
         },
-        stdio: ['pipe', stdoutFd, stderrFd],
+        stdio: ['ignore', stdoutFd, stderrFd],
       });
-
-      if (child.stdin) {
-        child.stdin.on('error', () => { /* swallow EPIPE if subprocess exits early */ });
-        child.stdin.end(req.userPrompt);
-      }
 
       const cleanup = () => {
         try { closeSync(stdoutFd); } catch { /* ignore */ }
@@ -217,23 +203,33 @@ export class GeminiCliCaller implements LlmCaller {
         req.abortSignal?.removeEventListener('abort', onAbort);
         const { stdout, stderr } = readOutput();
         cleanup();
+
+        const selectedModel = tryReadSelectedModel(this.profile);
+        if (selectedModel) {
+          logger.info('CHAIN', `${this.providerId} routed to ${selectedModel}`, {
+            profile: this.profile,
+            model: selectedModel,
+            agentTag: req.agentTag,
+          });
+        }
+
         if (code !== 0) {
           const combined = `${stderr}\n${stdout}`;
           reject(new ClassifiedProviderError(
             `${this.providerId} exited ${code ?? 'unknown'}: ${(stderr || stdout).slice(-2000)}`,
-            { kind: classifyGeminiCliError(combined), cause: new Error(stderr || stdout) },
+            { kind: classifyAntigravityCliError(combined), cause: new Error(stderr || stdout) },
           ));
           return;
         }
-        const extracted = extractGeminiResponse(stdout);
-        if (extracted.errorMessage && !extracted.text) {
+        const trimmed = stdout.trim();
+        if (!trimmed) {
           reject(new ClassifiedProviderError(
-            `${this.providerId} returned error: ${extracted.errorMessage.slice(0, 2000)}`,
-            { kind: classifyGeminiCliError(extracted.errorMessage), cause: new Error(extracted.errorMessage) },
+            `${this.providerId} returned empty response${stderr ? `: ${stderr.slice(-1000)}` : ''}`,
+            { kind: 'transient', cause: new Error('empty response') },
           ));
           return;
         }
-        resolve(extracted.text);
+        resolve(trimmed);
       });
     });
   }

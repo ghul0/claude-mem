@@ -1,7 +1,7 @@
 import { logger } from '../../../utils/logger.js';
 import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager.js';
 import { ClassifiedProviderError, isClassified } from '../provider-errors.js';
-import { GeminiCliCaller } from './GeminiCliCaller.js';
+import { AntigravityCliCaller } from './AntigravityCliCaller.js';
 import { PiCaller } from './PiCaller.js';
 import { globalProviderChain, ProviderChain } from './ProviderChain.js';
 import type { LlmCallRequest, LlmCallResult, LlmCaller, ProviderId } from './types.js';
@@ -24,8 +24,10 @@ Emit ONLY the structured output specified in the system prompt. No prose, no mar
 
 function buildCallerFor(providerId: ProviderId): LlmCaller {
   switch (providerId) {
-    case 'gemini-cli':
-      return new GeminiCliCaller();
+    case 'antigravity-tm':
+      return new AntigravityCliCaller({ providerId: 'antigravity-tm', profile: 'tm' });
+    case 'antigravity-ghul':
+      return new AntigravityCliCaller({ providerId: 'antigravity-ghul', profile: 'ghul' });
     case 'codex-spark':
       return new PiCaller({ providerId: 'codex-spark', modelName: 'openai-codex/gpt-5.3-codex-spark' });
     case 'codex-mini':

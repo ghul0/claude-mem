@@ -1,6 +1,6 @@
-export type ProviderId = 'gemini-cli' | 'codex-spark' | 'codex-mini';
+export type ProviderId = 'antigravity-tm' | 'antigravity-ghul' | 'codex-spark' | 'codex-mini';
 
-export const ALL_PROVIDER_IDS: ProviderId[] = ['gemini-cli', 'codex-spark', 'codex-mini'];
+export const ALL_PROVIDER_IDS: ProviderId[] = ['antigravity-tm', 'antigravity-ghul', 'codex-spark', 'codex-mini'];
 
 export function isProviderId(value: string): value is ProviderId {
   return (ALL_PROVIDER_IDS as string[]).includes(value);

@@ -3,7 +3,7 @@ import { SettingsDefaultsManager, type SettingsDefaults } from '../../../shared/
 import { ALL_PROVIDER_IDS, isProviderId, type CoolingState, type ProviderId } from './types.js';
 
 const MAX_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_CHAIN: ProviderId[] = ['gemini-cli', 'codex-spark', 'codex-mini'];
+const DEFAULT_CHAIN: ProviderId[] = ['antigravity-tm', 'antigravity-ghul', 'codex-spark', 'codex-mini'];
 
 export type ErrorKind = 'quota_exhausted' | 'rate_limit' | 'transient' | 'unrecoverable' | 'auth_invalid';
 
