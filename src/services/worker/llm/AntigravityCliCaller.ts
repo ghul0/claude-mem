@@ -36,7 +36,7 @@ function classifyAntigravityCliError(combined: string): 'quota_exhausted' | 'tra
 
 function tryReadSelectedModel(profile: string): string | null {
   try {
-    const logDir = join(homedir(), '.gemini', `antigravity-cli-${profile}`, 'log');
+    const logDir = join(homedir(), '.gemini', `cm-${profile}`, 'log');
     const files = readdirSync(logDir).filter(f => f.startsWith('cli-') && f.endsWith('.log'));
     if (files.length === 0) return null;
     files.sort();
@@ -124,7 +124,7 @@ export class AntigravityCliCaller implements LlmCaller {
 
     const args = [
       `--gemini_dir=${join(homedir(), '.gemini')}`,
-      `--app_data_dir=antigravity-cli-${this.profile}`,
+      `--app_data_dir=cm-${this.profile}`,
       '--dangerously-skip-permissions',
       '--print',
       combined,
