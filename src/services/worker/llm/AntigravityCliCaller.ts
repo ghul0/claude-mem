@@ -170,7 +170,7 @@ export class AntigravityCliCaller implements LlmCaller {
       `--add-dir=${tempDir}`,
       '--dangerously-skip-permissions',
       '--print',
-      combined,
+      '',
     ];
 
     logger.debug('CHAIN', `${this.providerId} starting subprocess`, {
@@ -193,8 +193,13 @@ export class AntigravityCliCaller implements LlmCaller {
           CLAUDE_MEM_INTERNAL_AGENT: req.agentTag ?? this.providerId,
           AGY_CLI_HIDE_ACCOUNT_INFO: '1',
         },
-        stdio: ['ignore', stdoutFd, stderrFd],
+        stdio: ['pipe', stdoutFd, stderrFd],
       });
+
+      if (child.stdin) {
+        child.stdin.on('error', () => { /* swallow EPIPE if subprocess exits early */ });
+        child.stdin.end(combined);
+      }
 
       const cleanup = () => {
         try { closeSync(stdoutFd); } catch { /* ignore */ }
