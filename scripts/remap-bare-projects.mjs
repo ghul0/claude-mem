@@ -25,6 +25,7 @@ const BASENAME_MAP = [
   ['nixen',                '/home/nixen'],
   ['hyperhuman-brain-poc', '/home/nixen/Projects/hyperhuman-brain-poc'],
   ['mcp',                  '/home/nixen/.claude/mcp'],
+  ['profile',              '/home/nixen/shared/profile'],
 ];
 
 function loadMap(db) {
