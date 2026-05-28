@@ -7,19 +7,21 @@ import { globalProviderChain, ProviderChain } from './ProviderChain.js';
 import type { LlmCallRequest, LlmCallResult, LlmCaller, ProviderId } from './types.js';
 
 const MAX_WAIT_FOR_RESET_MS = 65 * 60 * 1000;
-const DEFAULT_VALIDATION_RETRIES = 2;
+const DEFAULT_VALIDATION_RETRIES = 6;
 
 function buildRetryPrompt(originalPrompt: string, previousResponse: string, feedback: string, attempt: number): string {
-  const preview = previousResponse.slice(0, 240).replace(/\s+/g, ' ').trim();
+  const preview = previousResponse.slice(0, 360).replace(/\s+/g, ' ').trim();
   return `${originalPrompt}
 
 ---
 
-VALIDATION FAILED (retry ${attempt}). The previous response started with: "${preview}..."
+VALIDATION FAILED (retry ${attempt}). Your previous response was REJECTED.
 
-Reason: ${feedback}
+Your previous response (first 360 chars): "${preview}..."
 
-Emit ONLY the structured output specified in the system prompt. No prose, no markdown fences, no commentary, no truncation — produce the complete payload, keep "notes"/"reason" strings short (max 200 chars) so the output fits in the model's token budget. Do not echo the original prompt. Do not explain.`;
+WHY IT WAS REJECTED: ${feedback}
+
+Re-emit the response NOW. Match the schema EXACTLY — same top-level key name, same field names, same shape. Do not invent alternative keys. Do not paraphrase the schema. Do not classify when only IDs were asked for. Output ONLY the JSON object. No prose, no markdown code fences, no commentary, no explanation, no preamble, no postamble. Keep string fields short (max 200 chars) so the payload fits in the model's token budget. Do not echo the original prompt.`;
 }
 
 function buildCallerFor(providerId: ProviderId): LlmCaller {
@@ -153,6 +155,7 @@ export class CallerChain {
         agentTag: req.agentTag,
         feedback: (result.feedback ?? '').slice(0, 240),
         previewBytes: text.length,
+        responsePreview: text.slice(0, 600).replace(/\s+/g, ' '),
       });
 
       const retryPrompt = buildRetryPrompt(req.userPrompt, text, result.feedback ?? 'Response did not match the required format.', attempt);

@@ -113,7 +113,15 @@ const validateSelectorJson: ResponseValidator = (text: string) => {
   }
   return {
     valid: false,
-    feedback: 'Response must be a single JSON object with key "candidateIds" (array of numbers) and optional "notes" (string). No prose, no markdown fences, no commentary outside the JSON.',
+    feedback:
+      'WRONG SHAPE. Required EXACTLY: {"candidateIds":[<number>,<number>,...],"notes":"<string-optional>"}. ' +
+      'Top-level key MUST be literally "candidateIds" (camelCase, plural). ' +
+      'Value MUST be a JSON array of plain numbers — observation IDs from the input candidates list. ' +
+      'DO NOT use alternative keys like "relations", "reconciliations", "reconciledObservations", "candidates", "items", "matches", "decisions" — these are REJECTED. ' +
+      'DO NOT return full objects — just integer IDs. ' +
+      'DO NOT classify or explain relationships — that is a separate later step. ' +
+      'Example valid output: {"candidateIds":[52378,52232,49386],"notes":"selected by topical overlap"}. ' +
+      'Emit ONLY that JSON object. No prose, no markdown fences, no commentary outside the JSON.',
   };
 };
 
@@ -124,7 +132,13 @@ const validateClassifierJson: ResponseValidator = (text: string) => {
   }
   return {
     valid: false,
-    feedback: 'Response must be a single JSON object with key "decisions" (array of {oldObservationId, relation, confidence, evidence, reason, recommendedStatus?}). No prose, no markdown fences, no commentary outside the JSON.',
+    feedback:
+      'WRONG SHAPE. Required EXACTLY: {"decisions":[{"oldObservationId":<number>,"relation":"<supersedes|contradicts|weakens|confirms|no_relation>","confidence":<0..1>,"evidence":"<string>","reason":"<string>","recommendedStatus":"<active|weak|stale|superseded|deprecated>"},...]}. ' +
+      'Top-level key MUST be literally "decisions" (lowercase, plural). ' +
+      'Each item MUST use these exact field names: oldObservationId, relation, confidence, evidence, reason, recommendedStatus. ' +
+      'DO NOT use alternative keys like "relations", "reconciliations", "candidate_id", "relationship", "explanation", "status" — these are REJECTED. ' +
+      'Example valid output: {"decisions":[{"oldObservationId":49386,"relation":"confirms","confidence":0.95,"evidence":"file path X matches","reason":"same bug","recommendedStatus":"active"}]}. ' +
+      'Emit ONLY that JSON object. No prose, no markdown fences, no commentary outside the JSON.',
   };
 };
 
