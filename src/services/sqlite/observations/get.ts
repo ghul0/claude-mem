@@ -23,7 +23,10 @@ export function getObservationsByIds(
   if (ids.length === 0) return [];
 
   const { orderBy = 'date_desc', limit, project, type, concepts, files } = options;
-  const orderClause = orderBy === 'date_asc' ? 'ASC' : 'DESC';
+  const preserveIdOrder = orderBy === 'relevance';
+  const orderClause = preserveIdOrder
+    ? ''
+    : `ORDER BY created_at_epoch ${orderBy === 'date_asc' ? 'ASC' : 'DESC'}`;
   const limitClause = limit ? `LIMIT ${limit}` : '';
 
   const placeholders = ids.map(() => '?').join(',');
@@ -81,11 +84,15 @@ export function getObservationsByIds(
     SELECT *
     FROM observations
     ${whereClause}
-    ORDER BY created_at_epoch ${orderClause}
+    ${orderClause}
     ${limitClause}
   `);
 
-  return stmt.all(...params) as ObservationRecord[];
+  const rows = stmt.all(...params) as ObservationRecord[];
+  if (!preserveIdOrder) return rows;
+
+  const rowMap = new Map(rows.map(r => [r.id, r]));
+  return ids.map(id => rowMap.get(id)).filter((r): r is ObservationRecord => !!r);
 }
 
 export function getObservationsForSession(

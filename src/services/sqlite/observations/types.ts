@@ -20,7 +20,7 @@ export interface StoreObservationResult {
 }
 
 export interface GetObservationsByIdsOptions {
-  orderBy?: 'date_desc' | 'date_asc';
+  orderBy?: 'date_desc' | 'date_asc' | 'relevance';
   limit?: number;
   project?: string;
   type?: string | string[];
