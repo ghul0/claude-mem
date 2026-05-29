@@ -545,6 +545,28 @@ export class WorkerService implements WorkerRef {
       logger.info('WORKER', 'Initializing database manager...');
       await this.dbManager.initialize();
 
+      const sweepResult = this.dbManager.getSessionStore().db.prepare(`
+        UPDATE pending_messages
+           SET status = 'pending'
+         WHERE status = 'processing'
+      `).run();
+
+      if (sweepResult.changes > 0) {
+        logger.info('SYSTEM', `Startup orphan sweep reclaimed ${sweepResult.changes} processing rows`);
+      }
+
+      const reconcileSweepResult = this.dbManager.getSessionStore().db.prepare(`
+        UPDATE observation_reconcile_jobs
+           SET status = 'pending',
+               locked_at_epoch = NULL,
+               updated_at_epoch = ?
+         WHERE status = 'processing'
+      `).run(Date.now());
+
+      if (reconcileSweepResult.changes > 0) {
+        logger.info('SYSTEM', `Startup orphan sweep reclaimed ${reconcileSweepResult.changes} reconcile jobs`);
+      }
+
       runOneTimeV12_4_3Cleanup();
 
       logger.info('WORKER', 'Initializing search services...');
