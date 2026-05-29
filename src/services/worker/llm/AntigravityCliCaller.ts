@@ -14,6 +14,19 @@ const SYSTEM_PROMPT_PREFIX = `IMPORTANT context for this run:
 
 `;
 
+function extractRetryAfterMs(combined: string): number | undefined {
+  // Antigravity format: "Resets in 156h3m55s." or "Resets in 30m1s." or "Resets in 2h7m30s."
+  const m = combined.match(/Resets in (?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?/i);
+  if (m && (m[1] || m[2] || m[3])) {
+    const h = m[1] ? Number.parseInt(m[1], 10) : 0;
+    const min = m[2] ? Number.parseInt(m[2], 10) : 0;
+    const s = m[3] ? Number.parseInt(m[3], 10) : 0;
+    const totalSec = h * 3600 + min * 60 + s;
+    if (totalSec > 0) return totalSec * 1000;
+  }
+  return undefined;
+}
+
 function classifyAntigravityCliError(combined: string): 'quota_exhausted' | 'transient' | 'unrecoverable' | 'auth_invalid' {
   const lower = combined.toLowerCase();
   if (
@@ -264,17 +277,43 @@ export class AntigravityCliCaller implements LlmCaller {
 
         if (code !== 0) {
           const combined = `${stderr}\n${stdout}`;
+          const retryAfterMs = extractRetryAfterMs(combined);
           reject(new ClassifiedProviderError(
             `${this.providerId} exited ${code ?? 'unknown'}: ${(stderr || stdout).slice(-2000)}`,
-            { kind: classifyAntigravityCliError(combined), cause: new Error(stderr || stdout) },
+            {
+              kind: classifyAntigravityCliError(combined),
+              cause: new Error(stderr || stdout),
+              ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+            },
           ));
           return;
         }
         const trimmed = stdout.trim();
         if (!trimmed) {
+          // Empty stdout often means antigravity hit a per-model quota and silently dropped the
+          // response. Check the per-profile log for RESOURCE_EXHAUSTED + Resets in <duration>.
+          let retryAfterMs: number | undefined;
+          let exhausted = false;
+          try {
+            const logDir = join(homedir(), '.gemini', `cm-${this.profile}`, 'log');
+            const files = readdirSync(logDir).filter((f) => f.startsWith('cli-') && f.endsWith('.log'));
+            if (files.length > 0) {
+              files.sort();
+              const newest = files[files.length - 1];
+              const content = readFileSync(join(logDir, newest), 'utf8');
+              if (/RESOURCE_EXHAUSTED|quota/i.test(content)) {
+                exhausted = true;
+                retryAfterMs = extractRetryAfterMs(content);
+              }
+            }
+          } catch { /* ignore */ }
           reject(new ClassifiedProviderError(
-            `${this.providerId} returned empty response${stderr ? `: ${stderr.slice(-1000)}` : ''}`,
-            { kind: 'transient', cause: new Error('empty response') },
+            `${this.providerId} returned empty response${exhausted ? ' (RESOURCE_EXHAUSTED detected in CLI log)' : ''}${stderr ? `: ${stderr.slice(-500)}` : ''}`,
+            {
+              kind: exhausted ? 'quota_exhausted' : 'transient',
+              cause: new Error('empty response'),
+              ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+            },
           ));
           return;
         }

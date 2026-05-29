@@ -2,7 +2,7 @@ import { logger } from '../../../utils/logger.js';
 import { SettingsDefaultsManager, type SettingsDefaults } from '../../../shared/SettingsDefaultsManager.js';
 import { ALL_PROVIDER_IDS, isProviderId, type CoolingState, type ProviderId } from './types.js';
 
-const MAX_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const MAX_COOLDOWN_MS = 8 * 24 * 60 * 60 * 1000;
 const DEFAULT_CHAIN: ProviderId[] = [
   'antigravity-tm-sonnet',
   'antigravity-ghul-sonnet',
