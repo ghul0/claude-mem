@@ -68,19 +68,39 @@ function compactEvidence(e: ObservationEvidenceBundle | null): Record<string, un
 function buildSelectorUserPrompt(request: CandidateSelectorRequest): string {
   const payload = {
     task: 'candidate_selection',
+    critical_constraint:
+      'THIS IS THE SELECTION STEP, NOT THE CLASSIFICATION STEP. ' +
+      'Your job is to return a flat list of integer IDs only. ' +
+      'Do NOT classify, do NOT explain relationships, do NOT include confidence scores or evidence strings or relation labels. ' +
+      'Classification happens in a separate downstream call — emitting relations / confidence / evidence here will be REJECTED.',
     newObservation: compactObservation(request.newObservation),
     evidence: compactEvidence(request.evidence),
     candidates: request.candidates.map(compactObservation),
     instructions: [
-      'Return the subset of candidate IDs that may be in conflict with, superseded by, weakened by, or otherwise materially related to the new observation.',
-      'Prefer recall over precision: include any plausibly related candidate; the classifier will refine.',
-      'Cap returned list at 40.'
+      'Look at each candidate and decide if it is plausibly related to the new observation (any kind of overlap — same file, same concept, same project, mentions the same fact).',
+      'Return ONLY the candidate IDs that pass this loose filter. Prefer recall over precision; the classifier will refine downstream.',
+      'Cap returned list at 40 IDs.',
+      'DO NOT label the relationship type. DO NOT score confidence. DO NOT cite evidence. Those are the classifier\'s job in a later call.',
     ],
     output_schema: {
-      candidateIds: 'number[] — array of candidate IDs from the input list',
-      notes: 'string — short rationale (optional)'
+      candidateIds: 'number[] — flat array of plain integer observation IDs from the input candidates list',
+      notes: 'string — OPTIONAL one-sentence rationale, no per-candidate breakdown',
     },
-    output_format: 'Return JSON object with keys candidateIds and notes only. No other text.'
+    forbidden_alternative_keys: [
+      'relations', 'reconciliations', 'reconciledObservations', 'candidates',
+      'items', 'matches', 'decisions', 'classifications', 'candidateRelations',
+    ],
+    forbidden_per_candidate_fields: [
+      'relation', 'relationship', 'confidence', 'evidence', 'reason',
+      'explanation', 'recommendedStatus', 'status',
+    ],
+    example_valid_output: { candidateIds: [52378, 52232, 49386], notes: 'selected by topical overlap' },
+    example_invalid_output: {
+      relations: [{ candidateId: 52378, relation: 'supersedes', confidence: 0.95, evidence: 'same file path' }],
+    },
+    output_format:
+      'Return EXACTLY one JSON object with top-level key "candidateIds" (camelCase, plural) and optional "notes". ' +
+      'No prose, no markdown code fences, no commentary, no envelope. Just the JSON.',
   };
   return JSON.stringify(payload, null, 2);
 }

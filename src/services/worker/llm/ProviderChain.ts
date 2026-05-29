@@ -4,8 +4,8 @@ import { ALL_PROVIDER_IDS, isProviderId, type CoolingState, type ProviderId } fr
 
 const MAX_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_CHAIN: ProviderId[] = [
-  'antigravity-tm-oss',
-  'antigravity-ghul-oss',
+  'antigravity-tm-sonnet',
+  'antigravity-ghul-sonnet',
   'antigravity-tm',
   'antigravity-ghul',
   'codex-spark',

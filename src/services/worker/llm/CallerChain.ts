@@ -26,10 +26,10 @@ Re-emit the response NOW. Match the schema EXACTLY — same top-level key name, 
 
 function buildCallerFor(providerId: ProviderId): LlmCaller {
   switch (providerId) {
-    case 'antigravity-tm-oss':
-      return new AntigravityCliCaller({ providerId: 'antigravity-tm-oss', profile: 'tm-oss' });
-    case 'antigravity-ghul-oss':
-      return new AntigravityCliCaller({ providerId: 'antigravity-ghul-oss', profile: 'ghul-oss' });
+    case 'antigravity-tm-sonnet':
+      return new AntigravityCliCaller({ providerId: 'antigravity-tm-sonnet', profile: 'tm-sonnet' });
+    case 'antigravity-ghul-sonnet':
+      return new AntigravityCliCaller({ providerId: 'antigravity-ghul-sonnet', profile: 'ghul-sonnet' });
     case 'antigravity-tm':
       return new AntigravityCliCaller({ providerId: 'antigravity-tm', profile: 'tm' });
     case 'antigravity-ghul':
