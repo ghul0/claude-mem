@@ -255,7 +255,7 @@ export class SettingsRoutes extends BaseRouteHandler {
     }
 
     if (settings.CLAUDE_MEM_FALLBACK_CHAIN) {
-      const validProviderIds = ['antigravity-tm-sonnet', 'antigravity-ghul-sonnet', 'antigravity-tm', 'antigravity-ghul', 'codex-spark', 'codex-mini'];
+      const validProviderIds = ['codex-spark', 'codex-mini'];
       const tokens = String(settings.CLAUDE_MEM_FALLBACK_CHAIN)
         .split(',')
         .map((t: string) => t.trim())

@@ -141,7 +141,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_SKIP_TOOLS: 'ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion',
     CLAUDE_MEM_PROVIDER: 'claude',  // Default to Claude
     CLAUDE_MEM_CLAUDE_AUTH_METHOD: 'subscription',  // Default to logged-in Claude SDK auth (not API key)
-    CLAUDE_MEM_PI_MODEL: 'openai-codex/gpt-5.3-codex-spark',
+    CLAUDE_MEM_PI_MODEL: 'openai-codex/gpt-5.4-mini',
     CLAUDE_MEM_PI_THINKING: 'off',
     CLAUDE_MEM_PI_TIMEOUT_MS: '120000',
     CLAUDE_MEM_PI_MAX_CONTEXT_MESSAGES: '20',
@@ -244,7 +244,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_DAILY_BUDGET_USD: '0',             // Daily USD budget cap; 0 = unlimited; jobs skip when exceeded
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_KILL_SWITCH: 'false',              // Global kill-switch: when true, halt all reconcile jobs without disabling master flag
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_CONCURRENCY: '1',                  // Max parallel reconcile jobs processed per tick (1 = serial)
-    CLAUDE_MEM_FALLBACK_CHAIN: 'gemini-cli,codex-spark,codex-mini',          // Provider fallback order; rotates on any provider error and cools each failed provider for CLAUDE_MEM_PROVIDER_COOLDOWN_MS
+    CLAUDE_MEM_FALLBACK_CHAIN: 'codex-mini,codex-spark',                    // Pi-only provider fallback order; rotates on any provider error and cools each failed provider for CLAUDE_MEM_PROVIDER_COOLDOWN_MS
     CLAUDE_MEM_GEMINI_CLI_MODEL: 'gemini-2.5-flash-lite',                    // Legacy; only honored if a caller explicitly invokes the removed GeminiCliCaller. Replaced by antigravity-tm/ghul auto-routing.
     CLAUDE_MEM_GEMINI_CLI_MIN_SPACING_MS: '6100',                            // Legacy; see CLAUDE_MEM_ANTIGRAVITY_CLI_MIN_SPACING_MS for the active rate gate.
     CLAUDE_MEM_ANTIGRAVITY_CLI_MIN_SPACING_MS: '2000',                       // Per-profile minimum spacing between agy --print subprocess starts. Antigravity manages per-model quota internally; this protects against socket churn.

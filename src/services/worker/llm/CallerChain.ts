@@ -1,7 +1,6 @@
 import { logger } from '../../../utils/logger.js';
 import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager.js';
 import { ClassifiedProviderError, isClassified } from '../provider-errors.js';
-import { AntigravityCliCaller } from './AntigravityCliCaller.js';
 import { PiCaller } from './PiCaller.js';
 import { globalProviderChain, ProviderChain } from './ProviderChain.js';
 import type { LlmCallRequest, LlmCallResult, LlmCaller, ProviderId } from './types.js';
@@ -26,14 +25,6 @@ Re-emit the response NOW. Match the schema EXACTLY — same top-level key name, 
 
 function buildCallerFor(providerId: ProviderId): LlmCaller {
   switch (providerId) {
-    case 'antigravity-tm-sonnet':
-      return new AntigravityCliCaller({ providerId: 'antigravity-tm-sonnet', profile: 'tm-sonnet' });
-    case 'antigravity-ghul-sonnet':
-      return new AntigravityCliCaller({ providerId: 'antigravity-ghul-sonnet', profile: 'ghul-sonnet' });
-    case 'antigravity-tm':
-      return new AntigravityCliCaller({ providerId: 'antigravity-tm', profile: 'tm' });
-    case 'antigravity-ghul':
-      return new AntigravityCliCaller({ providerId: 'antigravity-ghul', profile: 'ghul' });
     case 'codex-spark':
       return new PiCaller({ providerId: 'codex-spark', modelName: 'openai-codex/gpt-5.3-codex-spark' });
     case 'codex-mini':

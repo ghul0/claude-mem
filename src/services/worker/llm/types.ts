@@ -1,16 +1,8 @@
 export type ProviderId =
-  | 'antigravity-tm-sonnet'
-  | 'antigravity-ghul-sonnet'
-  | 'antigravity-tm'
-  | 'antigravity-ghul'
   | 'codex-spark'
   | 'codex-mini';
 
 export const ALL_PROVIDER_IDS: ProviderId[] = [
-  'antigravity-tm-sonnet',
-  'antigravity-ghul-sonnet',
-  'antigravity-tm',
-  'antigravity-ghul',
   'codex-spark',
   'codex-mini',
 ];
