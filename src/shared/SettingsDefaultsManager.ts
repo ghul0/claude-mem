@@ -133,13 +133,13 @@ export interface SettingsDefaults {
 
 export class SettingsDefaultsManager {
   private static readonly DEFAULTS: SettingsDefaults = {
-    CLAUDE_MEM_MODEL: 'claude-haiku-4-5-20251001',
+    CLAUDE_MEM_MODEL: 'openai-codex/gpt-5.4-mini',
     CLAUDE_MEM_CONTEXT_OBSERVATIONS: '50',
     CLAUDE_MEM_WORKER_PORT: String(37700 + ((process.getuid?.() ?? 77) % 100)),
     CLAUDE_MEM_WORKER_HOST: '127.0.0.1',
     CLAUDE_MEM_API_TIMEOUT_MS: String(getTimeout(HOOK_TIMEOUTS.API_REQUEST)),
     CLAUDE_MEM_SKIP_TOOLS: 'ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion',
-    CLAUDE_MEM_PROVIDER: 'claude',  // Default to Claude
+    CLAUDE_MEM_PROVIDER: 'pi',  // Personal fork default: route background LLM work through Pi
     CLAUDE_MEM_CLAUDE_AUTH_METHOD: 'subscription',  // Default to logged-in Claude SDK auth (not API key)
     CLAUDE_MEM_PI_MODEL: 'openai-codex/gpt-5.4-mini',
     CLAUDE_MEM_PI_THINKING: 'off',
