@@ -57,7 +57,6 @@ export function detectInstalledIDEs(): IDEInfo[] {
       id: 'pi',
       label: 'Pi',
       detected: existsSync(join(home, '.pi', 'agent')) || isCommandInPath('pi'),
-      supported: true,
       hint: 'native package extension',
     },
     {

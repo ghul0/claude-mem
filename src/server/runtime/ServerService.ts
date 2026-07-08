@@ -62,7 +62,7 @@ class ServerRuntimeInfoRoutes implements RouteHandler {
       const queueLanes = await collectQueueLaneMetrics(this.graph);
       res.json({
         status: 'ok',
-        runtime: SERVER_BETA_RUNTIME,
+        runtime: SERVER_RUNTIME,
         queue: this.graph.queueManager.getHealth(),
         queueLanes,
       });

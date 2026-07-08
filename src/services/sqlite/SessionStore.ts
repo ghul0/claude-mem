@@ -2095,12 +2095,13 @@ export class SessionStore {
     discoveryTokens: number = 0,
     overrideTimestampEpoch?: number,
     generatedByModel?: string
-  ): { observationIds: number[]; summaryId: number | null; createdAtEpoch: number } {
+  ): { observationIds: number[]; insertedIds: number[]; summaryId: number | null; createdAtEpoch: number } {
     const timestampEpoch = overrideTimestampEpoch ?? Date.now();
     const timestampIso = new Date(timestampEpoch).toISOString();
 
     const storeTx = this.db.transaction(() => {
       const observationIds: number[] = [];
+      const insertedIds: number[] = [];
 
       const obsStmt = this.db.prepare(`
         INSERT INTO observations
@@ -2141,6 +2142,7 @@ export class SessionStore {
 
         if (inserted) {
           observationIds.push(inserted.id);
+          insertedIds.push(inserted.id);
           continue;
         }
 
@@ -2179,7 +2181,7 @@ export class SessionStore {
         summaryId = Number(result.lastInsertRowid);
       }
 
-      return { observationIds, summaryId, createdAtEpoch: timestampEpoch };
+      return { observationIds, insertedIds, summaryId, createdAtEpoch: timestampEpoch };
     });
 
     return storeTx();

@@ -22,6 +22,7 @@ import { handleGeneratorExit } from '../../session/GeneratorExitHandler.js';
 import { telemetryBuffer } from '../../../telemetry/buffer.js';
 import { SessionCompletionHandler } from '../../session/SessionCompletionHandler.js';
 import { USER_PROMPT_DEDUPE_WINDOW_MS } from '../../../../shared/user-prompts.js';
+import { getUptimeSeconds } from '../../../../shared/uptime.js';
 import {
   CLAUDE_CLI_SETUP_RECHECK_COOLDOWN_MS,
   clearDependencyStatus,
@@ -424,6 +425,34 @@ export class SessionRoutes extends BaseRouteHandler {
     this.eventBroadcaster.broadcastSummarizeQueued();
 
     res.json({ status: 'queued' });
+  });
+
+  private handleStatusByClaudeId = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
+    const contentSessionId = req.query.contentSessionId as string;
+
+    if (!contentSessionId) {
+      return this.badRequest(res, 'Missing contentSessionId query parameter');
+    }
+
+    const store = this.dbManager.getSessionStore();
+    const platformSource = this.getPlatformSourceFromRequest(req);
+    const sessionDbId = store.createSDKSession(contentSessionId, '', '', undefined, platformSource);
+    const session = this.sessionManager.getSession(sessionDbId);
+
+    if (!session) {
+      res.json({ status: 'not_found', queueLength: 0 });
+      return;
+    }
+
+    const queueLength = this.sessionManager.getMessageBuffer().getPendingCount(sessionDbId);
+
+    res.json({
+      status: 'active',
+      sessionDbId,
+      queueLength,
+      summaryStored: session.lastSummaryStored ?? null,
+      uptime: getUptimeSeconds(session.startTime),
+    });
   });
 
   private handleSessionInitByClaudeId = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
