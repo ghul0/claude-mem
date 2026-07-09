@@ -1,6 +1,9 @@
+import { homedir } from 'os';
+import { join } from 'path';
 import { logger } from '../../../utils/logger.js';
 import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager.js';
 import { ClassifiedProviderError, isClassified } from '../provider-errors.js';
+import { AntigravityCliCaller } from './AntigravityCliCaller.js';
 import { PiCaller } from './PiCaller.js';
 import { globalProviderChain, ProviderChain } from './ProviderChain.js';
 import type { LlmCallRequest, LlmCallResult, LlmCaller, ProviderId } from './types.js';
@@ -23,12 +26,30 @@ WHY IT WAS REJECTED: ${feedback}
 Re-emit the response NOW. Match the schema EXACTLY — same top-level key name, same field names, same shape. Do not invent alternative keys. Do not paraphrase the schema. Do not classify when only IDs were asked for. Output ONLY the JSON object. No prose, no markdown code fences, no commentary, no explanation, no preamble, no postamble. Keep string fields short (max 200 chars) so the payload fits in the model's token budget. Do not echo the original prompt.`;
 }
 
+const PI_NPM_MODULES = join(homedir(), '.pi', 'agent', 'npm', 'node_modules');
+
 function buildCallerFor(providerId: ProviderId): LlmCaller {
   switch (providerId) {
+    case 'antigravity-tm':
+      return new AntigravityCliCaller({ providerId: 'antigravity-tm', profile: 'tm' });
+    case 'antigravity-ghul':
+      return new AntigravityCliCaller({ providerId: 'antigravity-ghul', profile: 'ghul' });
     case 'codex-spark':
       return new PiCaller({ providerId: 'codex-spark', modelName: 'openai-codex/gpt-5.3-codex-spark' });
+    case 'minimax-m3':
+      return new PiCaller({
+        providerId: 'minimax-m3',
+        modelName: 'minimax/MiniMax-M3',
+        extensionPaths: [join(PI_NPM_MODULES, '@sinamtz', 'pi-minimax-provider', 'dist', 'index.js')],
+      });
     case 'codex-mini':
       return new PiCaller({ providerId: 'codex-mini', modelName: 'openai-codex/gpt-5.4-mini' });
+    case 'claude-haiku':
+      return new PiCaller({
+        providerId: 'claude-haiku',
+        modelName: 'claude-bridge/claude-haiku-4-5',
+        extensionPaths: [join(PI_NPM_MODULES, 'pi-claude-bridge', 'src', 'index.ts')],
+      });
   }
 }
 

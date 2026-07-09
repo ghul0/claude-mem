@@ -102,12 +102,14 @@ export class PiCaller implements LlmCaller {
   readonly modelName: string;
   private piExecutable: string;
   private thinking: string;
+  private extensionPaths: string[];
 
-  constructor(args: { providerId: ProviderId; modelName: string; piExecutable?: string; thinking?: string }) {
+  constructor(args: { providerId: ProviderId; modelName: string; piExecutable?: string; thinking?: string; extensionPaths?: string[] }) {
     this.providerId = args.providerId;
     this.modelName = args.modelName;
     this.piExecutable = args.piExecutable ?? 'pi';
     this.thinking = args.thinking ?? 'off';
+    this.extensionPaths = args.extensionPaths ?? [];
   }
 
   async call(req: LlmCallRequest): Promise<string> {
@@ -121,9 +123,12 @@ export class PiCaller implements LlmCaller {
     writeFileSync(stdoutPath, '', 'utf8');
     writeFileSync(stderrPath, '', 'utf8');
 
-    const requiresExtensions = this.modelName.startsWith('claude-agent-sdk/');
+    // Providers backed by a pi extension (minimax, claude-bridge) need the
+    // extension loaded explicitly; --no-extensions would strip the provider.
+    const requiresExtensions = this.modelName.startsWith('claude-agent-sdk/') || this.extensionPaths.length > 0;
     const args = [
       ...(requiresExtensions ? [] : ['--no-extensions']),
+      ...this.extensionPaths.flatMap((p) => ['--extension', p]),
       '--no-session',
       '--no-context-files',
       '--no-skills',

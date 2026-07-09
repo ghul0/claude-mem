@@ -244,7 +244,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_DAILY_BUDGET_USD: '0',             // Daily USD budget cap; 0 = unlimited; jobs skip when exceeded
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_KILL_SWITCH: 'false',              // Global kill-switch: when true, halt all reconcile jobs without disabling master flag
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_CONCURRENCY: '1',                  // Max parallel reconcile jobs processed per tick (1 = serial)
-    CLAUDE_MEM_FALLBACK_CHAIN: 'codex-mini,codex-spark',                    // Pi-only provider fallback order; rotates on any provider error and cools each failed provider for CLAUDE_MEM_PROVIDER_COOLDOWN_MS
+    CLAUDE_MEM_FALLBACK_CHAIN: 'antigravity-tm,antigravity-ghul,codex-spark,minimax-m3,codex-mini,claude-haiku', // Provider fallback order; rotates on any provider error and cools each failed provider per-kind
     CLAUDE_MEM_GEMINI_CLI_MODEL: 'gemini-2.5-flash-lite',                    // Legacy; only honored if a caller explicitly invokes the removed GeminiCliCaller. Replaced by antigravity-tm/ghul auto-routing.
     CLAUDE_MEM_GEMINI_CLI_MIN_SPACING_MS: '6100',                            // Legacy; see CLAUDE_MEM_ANTIGRAVITY_CLI_MIN_SPACING_MS for the active rate gate.
     CLAUDE_MEM_ANTIGRAVITY_CLI_MIN_SPACING_MS: '2000',                       // Per-profile minimum spacing between agy --print subprocess starts. Antigravity manages per-model quota internally; this protects against socket churn.

@@ -1,10 +1,18 @@
 export type ProviderId =
+  | 'antigravity-tm'
+  | 'antigravity-ghul'
   | 'codex-spark'
-  | 'codex-mini';
+  | 'minimax-m3'
+  | 'codex-mini'
+  | 'claude-haiku';
 
 export const ALL_PROVIDER_IDS: ProviderId[] = [
+  'antigravity-tm',
+  'antigravity-ghul',
   'codex-spark',
+  'minimax-m3',
   'codex-mini',
+  'claude-haiku',
 ];
 
 export function isProviderId(value: string): value is ProviderId {
