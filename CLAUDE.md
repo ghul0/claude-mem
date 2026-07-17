@@ -57,19 +57,13 @@ This repository is a personal fork at `github.com/ghul0/claude-mem`. The origina
 
 ### Session-start sync (run at the beginning of every session)
 
-Before doing any work, sync `main` with upstream and rebase `develop` on top:
+Before doing any work, run the guarded sync entry point from a clean `develop`:
 
 ```bash
-git fetch upstream --tags
-git checkout main
-git merge --ff-only upstream/main      # always FF; main has no local commits
-git push origin main                    # back up the synced main to the fork
-git checkout develop
-git rebase main                         # replay develop commits on top of new main
-git push --force-with-lease origin develop  # only if rebase moved commits
+scripts/sync-personal-fork.sh
 ```
 
-If `git merge --ff-only upstream/main` fails, `main` has diverged — investigate before forcing anything.
+The script fast-forwards the local `main` ref to `upstream/main`, pushes that mirror to `origin/main`, rebases `develop` with local hooks disabled, and force-with-lease pushes `origin/develop` only when the rebase moved it. It never checks out `main`, because upstream has no `pi/` directory and temporarily removing that path makes live `pi-brain` launchers fragile. It also never pushes to `upstream` and refuses a diverged local `main` instead of forcing it.
 
 ### Daily work
 
