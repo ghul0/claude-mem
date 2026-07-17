@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { closeSync, mkdtempSync, openSync, readFileSync, writeFileSync } from 'fs';
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { logger } from '../../../utils/logger.js';
@@ -162,15 +162,16 @@ export class PiCaller implements LlmCaller {
         stdio: ['ignore', stdoutFd, stderrFd],
       });
 
-      const cleanup = () => {
-        try { closeSync(stdoutFd); } catch { /* ignore */ }
-        try { closeSync(stderrFd); } catch { /* ignore */ }
-      };
-
       const readOutput = () => ({
         stdout: readFileSync(stdoutPath, 'utf8'),
         stderr: readFileSync(stderrPath, 'utf8'),
       });
+
+      const cleanup = () => {
+        try { closeSync(stdoutFd); } catch { /* ignore */ }
+        try { closeSync(stderrFd); } catch { /* ignore */ }
+        try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+      };
 
       const onAbort = () => {
         if (settled) return;

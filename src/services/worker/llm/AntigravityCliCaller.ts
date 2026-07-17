@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, writeFileSync } from 'fs';
+import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import { logger } from '../../../utils/logger.js';
@@ -217,6 +217,7 @@ export class AntigravityCliCaller implements LlmCaller {
       const cleanup = () => {
         try { closeSync(stdoutFd); } catch { /* ignore */ }
         try { closeSync(stderrFd); } catch { /* ignore */ }
+        try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
       };
 
       const readOutput = () => ({
