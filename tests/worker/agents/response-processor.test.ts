@@ -54,6 +54,7 @@ describe('ResponseProcessor', () => {
 
     mockStoreObservations = mock(() => ({
       observationIds: [1, 2],
+      insertedIds: [1, 2],
       summaryId: 1,
       createdAtEpoch: 1700000000000,
     } as StorageResult));
@@ -286,6 +287,7 @@ describe('ResponseProcessor', () => {
 
       mockStoreObservations = mock(() => ({
         observationIds: [1],
+        insertedIds: [1],
         summaryId: null,
         createdAtEpoch: 1700000000000,
       }));
@@ -383,6 +385,7 @@ describe('ResponseProcessor', () => {
 
       mockStoreObservations = mock(() => ({
         observationIds: [42],
+        insertedIds: [42],
         summaryId: null,
         createdAtEpoch: 1700000000000,
       }));
@@ -417,6 +420,7 @@ describe('ResponseProcessor', () => {
     it('should broadcast summary via SSE', async () => {
       mockStoreObservations = mock(() => ({
         observationIds: [],
+        insertedIds: [],
         summaryId: 99,
         createdAtEpoch: 1700000000000,
       } as StorageResult));
@@ -518,6 +522,7 @@ describe('ResponseProcessor', () => {
 
       mockStoreObservations = mock(() => ({
         observationIds: [1],
+        insertedIds: [1],
         summaryId: null,
         createdAtEpoch: 1700000000000,
       }));
@@ -556,6 +561,7 @@ describe('ResponseProcessor', () => {
 
       mockStoreObservations = mock(() => ({
         observationIds: [1],
+        insertedIds: [1],
         summaryId: null,
         createdAtEpoch: 1700000000000,
       }));
@@ -598,6 +604,7 @@ describe('ResponseProcessor', () => {
 
       mockStoreObservations = mock(() => ({
         observationIds: [1],
+        insertedIds: [1],
         summaryId: null,
         createdAtEpoch: 1700000000000,
       }));
@@ -660,6 +667,7 @@ describe('ResponseProcessor', () => {
     it('should set lastSummaryStored=true when storage returns a summaryId', async () => {
       mockStoreObservations.mockImplementation(() => ({
         observationIds: [],
+        insertedIds: [],
         summaryId: 42,
         createdAtEpoch: 1700000000000,
       } as StorageResult));
@@ -683,6 +691,7 @@ describe('ResponseProcessor', () => {
     it('should set lastSummaryStored=false when storage returns summaryId=null (silent loss path, #1633)', async () => {
       mockStoreObservations.mockImplementation(() => ({
         observationIds: [],
+        insertedIds: [],
         summaryId: null,
         createdAtEpoch: 1700000000000,
       } as StorageResult));

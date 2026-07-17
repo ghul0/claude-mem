@@ -124,6 +124,7 @@ describe('GeminiProvider', () => {
 
     mockStoreObservations = mock(() => ({
       observationIds: [1],
+      insertedIds: [1],
       summaryId: 1,
       createdAtEpoch: Date.now()
     }));

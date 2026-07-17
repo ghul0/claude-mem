@@ -5,34 +5,30 @@ import { getProjectName, getProjectContext } from '../../src/utils/project-name.
 
 describe('getProjectName', () => {
   describe('tilde expansion', () => {
-    it('resolves bare ~ to home directory basename', () => {
-      const home = homedir();
-      const expected = home.split('/').pop() || home.split('\\').pop() || '';
-      expect(getProjectName('~')).toBe(expected);
+    it('resolves bare ~ to the canonical absolute home identifier', () => {
+      expect(getProjectName('~')).toBe(homedir());
     });
 
-    it('resolves ~/subpath to subpath', () => {
-      expect(getProjectName('~/projects/my-app')).toBe('my-app');
+    it('resolves ~/subpath to an absolute identifier', () => {
+      expect(getProjectName('~/projects/my-app')).toBe(`${homedir()}/projects/my-app`);
     });
 
-    it('resolves ~/ to home directory basename', () => {
-      const home = homedir();
-      const expected = home.split('/').pop() || home.split('\\').pop() || '';
-      expect(getProjectName('~/')).toBe(expected);
+    it('normalizes the trailing slash from ~/', () => {
+      expect(getProjectName('~/')).toBe(homedir());
     });
   });
 
   describe('normal paths', () => {
-    it('extracts basename from absolute path', () => {
-      expect(getProjectName('/home/user/my-project')).toBe('my-project');
+    it('keeps the full absolute path as the project identifier', () => {
+      expect(getProjectName('/home/user/my-project')).toBe('/home/user/my-project');
     });
 
-    it('extracts basename from nested path', () => {
-      expect(getProjectName('/Users/test/work/deep/nested/project')).toBe('project');
+    it('does not collapse nested paths with the same basename', () => {
+      expect(getProjectName('/Users/test/work/deep/nested/project')).toBe('/Users/test/work/deep/nested/project');
     });
 
-    it('handles trailing slash', () => {
-      expect(getProjectName('/home/user/my-project/')).toBe('my-project');
+    it('normalizes a trailing slash', () => {
+      expect(getProjectName('/home/user/my-project/')).toBe('/home/user/my-project');
     });
   });
 
@@ -54,7 +50,7 @@ describe('getProjectName', () => {
     });
   });
 
-  describe('#2663 — name derived from git repo root', () => {
+  describe('absolute project identifier contract', () => {
     let tmp: string;
     let repoRoot: string;
     let nestedDir: string;
@@ -79,18 +75,16 @@ describe('getProjectName', () => {
       rmSync(tmp, { recursive: true, force: true });
     });
 
-    it('deep subdirectory inside a repo yields the repo-root name', () => {
-      expect(getProjectName(nestedDir)).toBe('my-real-repo');
+    it('keeps a deep repository cwd distinct from its root', () => {
+      expect(getProjectName(nestedDir)).toBe(nestedDir);
     });
 
-    it('repo root itself yields the repo-root name', () => {
-      expect(getProjectName(repoRoot)).toBe('my-real-repo');
+    it('uses the repository root path when that is the cwd', () => {
+      expect(getProjectName(repoRoot)).toBe(repoRoot);
     });
 
-    it('non-repo path falls back to basename(cwd)', () => {
-      // A path that does not exist (and therefore cannot be in a repo) must
-      // fall back to basename(cwd) rather than throwing or returning a root.
-      expect(getProjectName('/no/such/dir/standalone-folder')).toBe('standalone-folder');
+    it('keeps a non-repository absolute path without filesystem probing', () => {
+      expect(getProjectName('/no/such/dir/standalone-folder')).toBe('/no/such/dir/standalone-folder');
     });
   });
 
@@ -110,12 +104,12 @@ describe('getProjectName', () => {
 });
 
 describe('getProjectContext', () => {
-  it('returns primary project name for normal path', () => {
+  it('returns the absolute identifier for a normal path', () => {
     const ctx = getProjectContext('/home/user/my-project');
-    expect(ctx.primary).toBe('my-project');
+    expect(ctx.primary).toBe('/home/user/my-project');
     expect(ctx.parent).toBeNull();
     expect(ctx.isWorktree).toBe(false);
-    expect(ctx.allProjects).toEqual(['my-project']);
+    expect(ctx.allProjects).toEqual(['/home/user/my-project']);
   });
 
   it('resolves ~ path correctly', () => {
@@ -159,18 +153,18 @@ describe('getProjectContext', () => {
       rmSync(tmp, { recursive: true, force: true });
     });
 
-    it('uses parent/worktree composite as primary when in a worktree', () => {
+    it('keeps the worktree checkout path as the primary identifier', () => {
       const ctx = getProjectContext(worktreeCheckout);
       expect(ctx.isWorktree).toBe(true);
-      expect(ctx.primary).toBe('main-repo/my-worktree');
+      expect(ctx.primary).toBe(worktreeCheckout);
       expect(ctx.parent).toBe('main-repo');
-      expect(ctx.allProjects).toEqual(['main-repo', 'main-repo/my-worktree']);
+      expect(ctx.allProjects).toEqual([worktreeCheckout]);
     });
 
-    it('write-path call sites resolve to composite name in worktrees', () => {
+    it('write-path call sites remain isolated by absolute worktree path', () => {
       const project = getProjectContext(worktreeCheckout).primary;
-      expect(project).toBe('main-repo/my-worktree');
-      expect(project).not.toBe('main-repo');
+      expect(project).toBe(worktreeCheckout);
+      expect(project).not.toBe(mainRepo);
       expect(project).not.toBe('my-worktree');
     });
   });

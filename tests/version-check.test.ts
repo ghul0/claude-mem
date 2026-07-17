@@ -10,8 +10,10 @@ describe('plugin/scripts/version-check.js', () => {
   beforeEach(() => {
     tempDir = join(tmpdir(), 'version-check-test-' + Date.now());
     mkdirSync(tempDir);
-    // Create package.json with version
+    // Create package metadata and the dependency marker so this test isolates
+    // legacy version parsing from the separate first-run dependency installer.
     writeFileSync(join(tempDir, 'package.json'), JSON.stringify({ version: '1.0.0' }));
+    mkdirSync(join(tempDir, 'node_modules'));
   });
 
   afterEach(() => {

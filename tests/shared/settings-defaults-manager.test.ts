@@ -353,10 +353,18 @@ describe('SettingsDefaultsManager', () => {
   });
 
   describe('get', () => {
-    it('should return default value for key', () => {
-      expect(SettingsDefaultsManager.get('CLAUDE_MEM_MODEL')).toBe('claude-haiku-4-5-20251001');
+    it('should return configured values with the personal fork model default', () => {
+      expect(SettingsDefaultsManager.get('CLAUDE_MEM_MODEL')).toBe('openai-codex/gpt-5.4-mini');
       const expectedPort = String(37700 + ((process.getuid?.() ?? 77) % 100));
       expect(SettingsDefaultsManager.get('CLAUDE_MEM_WORKER_PORT')).toBe(expectedPort);
+    });
+
+    it('keeps the source default fallback chain fail-closed', () => {
+      const defaults = SettingsDefaultsManager.getAllDefaults();
+      expect(defaults.CLAUDE_MEM_FALLBACK_CHAIN).toBe(
+        'antigravity-tm,antigravity-ghul,codex-spark,minimax-m3,codex-mini',
+      );
+      expect(defaults.CLAUDE_MEM_FALLBACK_CHAIN).not.toContain('claude-haiku');
     });
   });
 
