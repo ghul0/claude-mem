@@ -46,7 +46,14 @@ export class ReconcileWorker {
   start(): void {
     if (this.timer) return;
     this.timer = setInterval(() => {
-      void this.tick();
+      void this.tick().catch((error: unknown) => {
+        logger.error(
+          'RECONCILE',
+          'Scheduled reconcile tick failed',
+          {},
+          error instanceof Error ? error : new Error(String(error))
+        );
+      });
     }, this.intervalMs);
     logger.debug('RECONCILE', 'Reconcile worker loop started', {
       intervalMs: this.intervalMs,

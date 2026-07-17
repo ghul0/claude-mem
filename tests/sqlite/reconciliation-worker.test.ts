@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { MigrationRunner } from '../../src/services/sqlite/migrations/runner.js';
 import { storeObservation } from '../../src/services/sqlite/observations/store.js';
@@ -9,6 +9,7 @@ import {
   type ReconciliationLlmCaller,
 } from '../../src/services/sqlite/reconciliation/llm-caller.js';
 import { listRelationsBySource } from '../../src/services/sqlite/reconciliation/relations-store.js';
+import { logger } from '../../src/utils/logger.js';
 
 const FLAG_KEY = 'CLAUDE_MEM_OBSERVATION_RECONCILIATION_ENABLED';
 const MODEL_KEY = 'CLAUDE_MEM_OBSERVATION_RECONCILIATION_MODEL';
@@ -37,6 +38,7 @@ describe('ReconcileWorker.tick', () => {
     delete process.env[MODEL_KEY];
   });
   afterEach(async () => {
+    workers.forEach((worker) => worker.stop());
     await Promise.all(workers.map((worker) => worker.waitForIdle()));
     db.close();
     for (const k of [FLAG_KEY, MODEL_KEY]) {
@@ -242,5 +244,35 @@ describe('ReconcileWorker.tick', () => {
     releaseSelector();
     await idleBarrier;
     expect(getJobByObservationId(db, newObs.id)?.status).toBe('completed');
+  });
+
+  it('contains rejected scheduled ticks instead of leaking unhandled rejections', async () => {
+    process.env[FLAG_KEY] = 'true';
+    const expectedError = new Error('scheduled tick boom');
+    let resolveLogged!: () => void;
+    const logged = new Promise<void>((resolve) => { resolveLogged = resolve; });
+    const errorSpy = spyOn(logger, 'error').mockImplementation((area, message) => {
+      if (area === 'RECONCILE' && message === 'Scheduled reconcile tick failed') {
+        resolveLogged();
+      }
+    });
+    const worker = new ReconcileWorker(() => {
+      throw expectedError;
+    }, { intervalMs: 1 });
+    workers.push(worker);
+
+    try {
+      worker.start();
+      await Promise.race([
+        logged,
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('scheduled tick error was not contained')), 250);
+        }),
+      ]);
+      expect(errorSpy).toHaveBeenCalled();
+    } finally {
+      worker.stop();
+      errorSpy.mockRestore();
+    }
   });
 });
