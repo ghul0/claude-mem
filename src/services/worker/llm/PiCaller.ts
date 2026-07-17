@@ -1,8 +1,21 @@
 import { spawn } from 'child_process';
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'fs';
-import { tmpdir } from 'os';
+import {
+  chmodSync,
+  closeSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'fs';
+import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import { logger } from '../../../utils/logger.js';
+import { sanitizeEnv } from '../../../supervisor/env-sanitizer.js';
 import { ClassifiedProviderError } from '../provider-errors.js';
 import type { LlmCallRequest, LlmCaller, ProviderId } from './types.js';
 
@@ -72,7 +85,10 @@ function classifyPiError(combined: string): 'quota_exhausted' | 'transient' | 'u
     lower.includes('rate limit') ||
     lower.includes('quota') ||
     lower.includes('out of extra usage') ||
-    lower.includes('resource_exhausted')
+    lower.includes('resource_exhausted') ||
+    lower.includes('insufficient_balance') ||
+    lower.includes('insufficient balance') ||
+    /(^|\D)402(\D|$)/.test(lower)
   ) {
     return 'quota_exhausted';
   }
@@ -95,6 +111,45 @@ function extractRetryAfterMs(combined: string): number | undefined {
     }
   }
   return undefined;
+}
+
+function linkOrCopyCredential(sourcePath: string, targetPath: string): void {
+  if (!existsSync(sourcePath)) return;
+  try {
+    symlinkSync(sourcePath, targetPath, 'file');
+  } catch {
+    copyFileSync(sourcePath, targetPath);
+    try { chmodSync(targetPath, 0o600); } catch { /* best effort on Windows */ }
+  }
+}
+
+function prepareIsolatedAgentDir(tempDir: string, modelName: string): string {
+  const agentDir = join(tempDir, 'pi-agent');
+  mkdirSync(agentDir, { recursive: true, mode: 0o700 });
+  writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({
+    enabledModels: [modelName],
+    retry: {
+      enabled: false,
+      maxRetries: 0,
+      provider: { maxRetries: 0, maxRetryDelayMs: 0 },
+    },
+    defaultProjectTrust: 'never',
+    enableInstallTelemetry: false,
+  }, null, 2), { encoding: 'utf8', mode: 0o600 });
+
+  const sourceAgentDir = process.env.PI_CODING_AGENT_DIR?.trim() || join(homedir(), '.pi', 'agent');
+  linkOrCopyCredential(join(sourceAgentDir, 'auth.json'), join(agentDir, 'auth.json'));
+  linkOrCopyCredential(join(sourceAgentDir, 'models.json'), join(agentDir, 'models.json'));
+  return agentDir;
+}
+
+function splitQualifiedModel(modelName: string): { provider?: string; model: string } {
+  const separator = modelName.indexOf('/');
+  if (separator <= 0 || separator === modelName.length - 1) return { model: modelName };
+  return {
+    provider: modelName.slice(0, separator),
+    model: modelName.slice(separator + 1),
+  };
 }
 
 export class PiCaller implements LlmCaller {
@@ -122,19 +177,23 @@ export class PiCaller implements LlmCaller {
     writeFileSync(promptPath, req.userPrompt, 'utf8');
     writeFileSync(stdoutPath, '', 'utf8');
     writeFileSync(stderrPath, '', 'utf8');
+    const isolatedAgentDir = prepareIsolatedAgentDir(tempDir, this.modelName);
+    const qualifiedModel = splitQualifiedModel(this.modelName);
 
-    // Providers backed by a pi extension (minimax, claude-bridge) need the
-    // extension loaded explicitly; --no-extensions would strip the provider.
-    const requiresExtensions = this.modelName.startsWith('claude-agent-sdk/') || this.extensionPaths.length > 0;
+    // --no-extensions still permits explicit -e paths. Keeping discovery off
+    // prevents unrelated user extensions and model scopes from entering this
+    // background subprocess.
     const args = [
-      ...(requiresExtensions ? [] : ['--no-extensions']),
+      '--no-extensions',
       ...this.extensionPaths.flatMap((p) => ['--extension', p]),
       '--no-session',
       '--no-context-files',
       '--no-skills',
       '--no-tools',
       '--system-prompt', systemPath,
-      '--model', this.modelName,
+      ...(qualifiedModel.provider ? ['--provider', qualifiedModel.provider] : []),
+      '--model', qualifiedModel.model,
+      '--models', this.modelName,
       '--thinking', this.thinking,
       '--mode', 'json',
       '-p', `@${promptPath}`,
@@ -155,7 +214,10 @@ export class PiCaller implements LlmCaller {
       const child = spawn(this.piExecutable, args, {
         cwd: process.cwd(),
         env: {
-          ...process.env,
+          ...sanitizeEnv(process.env),
+          PI_CODING_AGENT_DIR: isolatedAgentDir,
+          PI_SKIP_VERSION_CHECK: '1',
+          PI_TELEMETRY: '0',
           CLAUDE_MEM_PI_PROVIDER_ACTIVE: '1',
           CLAUDE_MEM_INTERNAL_AGENT: req.agentTag ?? 'pi-caller',
         },
@@ -214,20 +276,21 @@ export class PiCaller implements LlmCaller {
         req.abortSignal?.removeEventListener('abort', onAbort);
         const { stdout, stderr } = readOutput();
         cleanup();
+        const extracted = extractAssistantTextFromJsonEvents(stdout);
         if (code !== 0) {
           const combined = `${stderr}\n${stdout}`;
           const retryAfterMs = extractRetryAfterMs(combined);
+          const detail = extracted.errorMessage || stdout.trim() || stderr.trim();
           reject(new ClassifiedProviderError(
-            `${this.providerId} exited ${code ?? 'unknown'}: ${(stderr || stdout).slice(-2000)}`,
+            `${this.providerId} exited ${code ?? 'unknown'}: ${detail.slice(-2000)}`,
             {
               kind: classifyPiError(combined),
-              cause: new Error(stderr || stdout),
+              cause: new Error(detail),
               ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
             },
           ));
           return;
         }
-        const extracted = extractAssistantTextFromJsonEvents(stdout);
         if (extracted.errorMessage && !extracted.text) {
           const retryAfterMs = extractRetryAfterMs(`${stdout}\n${extracted.errorMessage}`);
           reject(new ClassifiedProviderError(

@@ -9,7 +9,6 @@ const DEFAULT_CHAIN: ProviderId[] = [
   'codex-spark',
   'minimax-m3',
   'codex-mini',
-  'claude-haiku',
 ];
 
 export type ErrorKind = 'quota_exhausted' | 'rate_limit' | 'transient' | 'unrecoverable' | 'auth_invalid';
@@ -43,6 +42,8 @@ interface CoolingEntry {
 
 export class ProviderChain {
   private cooling = new Map<ProviderId, CoolingEntry>();
+  private inFlight = new Set<ProviderId>();
+  private stateWaiters = new Set<() => void>();
 
   parseChainSetting(): ProviderId[] {
     const raw = SettingsDefaultsManager.get('CLAUDE_MEM_FALLBACK_CHAIN') || '';
@@ -100,6 +101,42 @@ export class ProviderChain {
     return null;
   }
 
+  tryAcquireNextAvailable(chain: ProviderId[], now: number = Date.now()): ProviderId | null {
+    for (const provider of chain) {
+      if (this.inFlight.has(provider) || this.isCoolingDown(provider, now)) continue;
+      this.inFlight.add(provider);
+      return provider;
+    }
+    return null;
+  }
+
+  release(provider: ProviderId): void {
+    if (!this.inFlight.delete(provider)) return;
+    this.notifyStateChange();
+  }
+
+  hasInFlight(chain: ProviderId[]): boolean {
+    return chain.some((provider) => this.inFlight.has(provider));
+  }
+
+  waitForStateChange(timeoutMs: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', finish);
+        this.stateWaiters.delete(finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, Math.max(1, timeoutMs));
+      this.stateWaiters.add(finish);
+      if (signal?.aborted) finish();
+      else signal?.addEventListener('abort', finish, { once: true });
+    });
+  }
+
   getEarliestReset(chain: ProviderId[]): number | null {
     let earliest: number | null = null;
     for (const provider of chain) {
@@ -124,6 +161,12 @@ export class ProviderChain {
 
   reset(): void {
     this.cooling.clear();
+    this.inFlight.clear();
+    this.notifyStateChange();
+  }
+
+  private notifyStateChange(): void {
+    for (const notify of [...this.stateWaiters]) notify();
   }
 }
 

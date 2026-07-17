@@ -28,7 +28,9 @@ Re-emit the response NOW. Match the schema EXACTLY — same top-level key name, 
 
 const PI_NPM_MODULES = join(homedir(), '.pi', 'agent', 'npm', 'node_modules');
 
-function buildCallerFor(providerId: ProviderId): LlmCaller {
+export type LlmCallerFactory = (providerId: ProviderId) => LlmCaller;
+
+export function createCallerForProvider(providerId: ProviderId): LlmCaller {
   switch (providerId) {
     case 'antigravity-tm':
       return new AntigravityCliCaller({ providerId: 'antigravity-tm', profile: 'tm' });
@@ -40,7 +42,6 @@ function buildCallerFor(providerId: ProviderId): LlmCaller {
       return new PiCaller({
         providerId: 'minimax-m3',
         modelName: 'minimax/MiniMax-M3',
-        extensionPaths: [join(PI_NPM_MODULES, '@sinamtz', 'pi-minimax-provider', 'dist', 'index.js')],
       });
     case 'codex-mini':
       return new PiCaller({ providerId: 'codex-mini', modelName: 'openai-codex/gpt-5.4-mini' });
@@ -54,7 +55,10 @@ function buildCallerFor(providerId: ProviderId): LlmCaller {
 }
 
 export class CallerChain {
-  constructor(private readonly chainStore: ProviderChain = globalProviderChain) {}
+  constructor(
+    private readonly chainStore: ProviderChain = globalProviderChain,
+    private readonly callerFactory: LlmCallerFactory = createCallerForProvider,
+  ) {}
 
   async call(req: LlmCallRequest): Promise<LlmCallResult> {
     const chain = this.chainStore.parseChainSetting();
@@ -71,9 +75,16 @@ export class CallerChain {
         throw new ClassifiedProviderError('CallerChain aborted by caller', { kind: 'transient', cause: new Error('aborted') });
       }
 
-      const next = this.chainStore.getNextAvailable(chain);
+      const next = this.chainStore.tryAcquireNextAvailable(chain);
 
       if (!next) {
+        if (this.chainStore.hasInFlight(chain)) {
+          // Another request owns every otherwise-available provider. Wait for a
+          // lease release instead of launching duplicate fallback storms.
+          await this.chainStore.waitForStateChange(1000, req.abortSignal);
+          continue;
+        }
+
         const earliest = this.chainStore.getEarliestReset(chain);
         if (earliest === null) {
           throw lastError instanceof Error ? lastError : new Error('CallerChain: chain empty after exhaustion');
@@ -93,7 +104,7 @@ export class CallerChain {
           status: this.chainStore.status(),
           agentTag: req.agentTag,
         });
-        await waitWithAbort(waitMs, req.abortSignal);
+        await this.chainStore.waitForStateChange(waitMs, req.abortSignal);
         triedInThisCall.clear();
         continue;
       }
@@ -103,9 +114,10 @@ export class CallerChain {
       }
       triedInThisCall.add(next);
 
-      const caller = buildCallerFor(next);
+      let caller: LlmCaller | undefined;
       attempts++;
       try {
+        caller = this.callerFactory(next);
         logger.debug('CHAIN', 'Attempting provider', {
           provider: next,
           model: caller.modelName,
@@ -133,10 +145,12 @@ export class CallerChain {
         logger.warn('CHAIN', 'Provider failed, rotating to next', {
           provider: next,
           kind: classified.kind,
-          model: caller.modelName,
+          model: caller?.modelName ?? 'unresolved',
           agentTag: req.agentTag,
           message: classified.message.slice(0, 300),
         });
+      } finally {
+        this.chainStore.release(next);
       }
     }
   }

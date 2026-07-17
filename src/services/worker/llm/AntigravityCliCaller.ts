@@ -4,6 +4,7 @@ import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import { logger } from '../../../utils/logger.js';
 import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager.js';
+import { sanitizeEnv } from '../../../supervisor/env-sanitizer.js';
 import { ClassifiedProviderError } from '../provider-errors.js';
 import type { LlmCallRequest, LlmCaller, ProviderId } from './types.js';
 
@@ -64,7 +65,23 @@ function tryReadSelectedModel(profile: string): string | null {
 }
 
 const MIN_SPACING_MS_DEFAULT = 2000;
+const AGY_MAX_PROMPT_ARG_BYTES = 96 * 1024;
+const AGY_TRUNCATION_MARKER = '\n\n...[prompt truncated for agy argv safety]...\n\n';
 const perProfileGates: Map<string, { lastStart: number; chain: Promise<void> }> = new Map();
+
+function truncateUtf8Middle(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value;
+  const markerBytes = Buffer.byteLength(AGY_TRUNCATION_MARKER, 'utf8');
+  const available = Math.max(0, maxBytes - markerBytes);
+  const source = Buffer.from(value, 'utf8');
+  const headBudget = Math.floor(available / 2);
+  const tailBudget = available - headBudget;
+  let truncated = `${source.subarray(0, headBudget).toString('utf8')}${AGY_TRUNCATION_MARKER}${source.subarray(source.length - tailBudget).toString('utf8')}`;
+  while (Buffer.byteLength(truncated, 'utf8') > maxBytes) {
+    truncated = truncated.slice(0, -1);
+  }
+  return truncated;
+}
 
 interface SchemaMarker {
   requiredKey: string;
@@ -175,7 +192,10 @@ export class AntigravityCliCaller implements LlmCaller {
       writeFileSync(join(tempDir, '.cm-schema-marker.json'), JSON.stringify(marker), 'utf8');
     }
 
-    const combined = `${SYSTEM_PROMPT_PREFIX}${req.systemPrompt.trim()}\n\n---\n\n${req.userPrompt}`;
+    const combined = truncateUtf8Middle(
+      `${SYSTEM_PROMPT_PREFIX}${req.systemPrompt.trim()}\n\n---\n\n${req.userPrompt}`,
+      AGY_MAX_PROMPT_ARG_BYTES,
+    );
 
     const args = [
       `--gemini_dir=${join(homedir(), '.gemini')}`,
@@ -183,7 +203,7 @@ export class AntigravityCliCaller implements LlmCaller {
       `--add-dir=${tempDir}`,
       '--dangerously-skip-permissions',
       '--print',
-      '',
+      combined,
     ];
 
     logger.debug('CHAIN', `${this.providerId} starting subprocess`, {
@@ -201,18 +221,13 @@ export class AntigravityCliCaller implements LlmCaller {
       const child = spawn(this.cliExecutable, args, {
         cwd: tempDir,
         env: {
-          ...process.env,
+          ...sanitizeEnv(process.env),
           CLAUDE_MEM_ANTIGRAVITY_CLI_ACTIVE: '1',
           CLAUDE_MEM_INTERNAL_AGENT: req.agentTag ?? this.providerId,
           AGY_CLI_HIDE_ACCOUNT_INFO: '1',
         },
-        stdio: ['pipe', stdoutFd, stderrFd],
+        stdio: ['ignore', stdoutFd, stderrFd],
       });
-
-      if (child.stdin) {
-        child.stdin.on('error', () => { /* swallow EPIPE if subprocess exits early */ });
-        child.stdin.end(combined);
-      }
 
       const cleanup = () => {
         try { closeSync(stdoutFd); } catch { /* ignore */ }
