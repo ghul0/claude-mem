@@ -24,6 +24,7 @@ export interface ReconcileWorkerOptions {
 export class ReconcileWorker {
   private timer: ReturnType<typeof setInterval> | null = null;
   private inFlight = 0;
+  private activeJobs = new Set<Promise<void>>();
   private caller: ReconciliationLlmCaller;
   private intervalMs: number;
   private maxConcurrent: number;
@@ -61,6 +62,11 @@ export class ReconcileWorker {
     }
   }
 
+  /**
+   * Claims and dispatches available work, then returns without waiting for LLM
+   * calls. This keeps the polling loop concurrent by design. Call waitForIdle()
+   * only at explicit lifecycle/test barriers that must observe settled jobs.
+   */
   async tick(): Promise<void> {
     if (!isReconciliationEnabled()) return;
     const db = this.getDb();
@@ -69,9 +75,26 @@ export class ReconcileWorker {
       const job = claimNextReconcileJob(db);
       if (!job) return;
       this.inFlight += 1;
-      void this.processJob(db, job).finally(() => {
+      const activeJob = this.processJob(db, job);
+      this.activeJobs.add(activeJob);
+      const finish = () => {
+        this.activeJobs.delete(activeJob);
         this.inFlight -= 1;
+      };
+      void activeJob.then(finish, (error: unknown) => {
+        finish();
+        logger.error(
+          'RECONCILE',
+          `Reconcile job ${job.id} escaped the job error boundary`,
+          error instanceof Error ? error : new Error(String(error))
+        );
       });
+    }
+  }
+
+  async waitForIdle(): Promise<void> {
+    while (this.activeJobs.size > 0) {
+      await Promise.allSettled([...this.activeJobs]);
     }
   }
 

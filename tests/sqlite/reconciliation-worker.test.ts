@@ -4,7 +4,10 @@ import { MigrationRunner } from '../../src/services/sqlite/migrations/runner.js'
 import { storeObservation } from '../../src/services/sqlite/observations/store.js';
 import { enqueueReconcileJob, getJobByObservationId } from '../../src/services/sqlite/reconciliation/jobs-store.js';
 import { ReconcileWorker } from '../../src/services/sqlite/reconciliation/reconciler-worker.js';
-import { MockReconciliationLlmCaller } from '../../src/services/sqlite/reconciliation/llm-caller.js';
+import {
+  MockReconciliationLlmCaller,
+  type ReconciliationLlmCaller,
+} from '../../src/services/sqlite/reconciliation/llm-caller.js';
 import { listRelationsBySource } from '../../src/services/sqlite/reconciliation/relations-store.js';
 
 const FLAG_KEY = 'CLAUDE_MEM_OBSERVATION_RECONCILIATION_ENABLED';
@@ -19,9 +22,11 @@ function seedSession(db: Database, memorySessionId: string, project: string): vo
 
 describe('ReconcileWorker.tick', () => {
   let db: Database;
+  let workers: ReconcileWorker[];
   const saved: Record<string, string | undefined> = {};
 
   beforeEach(() => {
+    workers = [];
     db = new Database(':memory:');
     db.run('PRAGMA journal_mode = WAL');
     db.run('PRAGMA foreign_keys = ON');
@@ -31,13 +36,25 @@ describe('ReconcileWorker.tick', () => {
     delete process.env[FLAG_KEY];
     delete process.env[MODEL_KEY];
   });
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.all(workers.map((worker) => worker.waitForIdle()));
     db.close();
     for (const k of [FLAG_KEY, MODEL_KEY]) {
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
     }
   });
+
+  function createWorker(options: ConstructorParameters<typeof ReconcileWorker>[1] = {}): ReconcileWorker {
+    const worker = new ReconcileWorker(() => db, options);
+    workers.push(worker);
+    return worker;
+  }
+
+  async function dispatchAndWait(worker: ReconcileWorker): Promise<void> {
+    await worker.tick();
+    await worker.waitForIdle();
+  }
 
   it('does nothing when reconciliation is disabled', async () => {
     seedSession(db, 'msid-w1', 'proj-w1');
@@ -57,14 +74,14 @@ describe('ReconcileWorker.tick', () => {
       () => ({ candidateIds: [] }),
       () => ({ decisions: [] })
     );
-    const worker = new ReconcileWorker(() => db, { caller });
-    await worker.tick();
+    const worker = createWorker({ caller });
+    await dispatchAndWait(worker);
 
     const job = getJobByObservationId(db, obs.id);
     expect(job?.status).toBe('pending');
   });
 
-  it('marks job skipped when no model is configured', async () => {
+  it('does not gate an enabled worker on the legacy model label', async () => {
     process.env[FLAG_KEY] = 'true';
     seedSession(db, 'msid-w2', 'proj-w2');
     const obs = storeObservation(db, 'msid-w2', 'proj-w2', {
@@ -79,12 +96,12 @@ describe('ReconcileWorker.tick', () => {
     });
     enqueueReconcileJob(db, { observationId: obs.id, project: 'proj-w2' });
 
-    const worker = new ReconcileWorker(() => db);
-    await worker.tick();
+    const worker = createWorker();
+    await dispatchAndWait(worker);
 
     const job = getJobByObservationId(db, obs.id);
-    expect(job?.status).toBe('skipped');
-    expect(job?.last_error).toBe('no_reconciliation_model_configured');
+    expect(job?.status).toBe('completed');
+    expect(job?.last_error).toBeNull();
   });
 
   it('completes a job and records relations when caller returns decisions', async () => {
@@ -128,8 +145,8 @@ describe('ReconcileWorker.tick', () => {
         ]
       })
     );
-    const worker = new ReconcileWorker(() => db, { caller });
-    await worker.tick();
+    const worker = createWorker({ caller });
+    await dispatchAndWait(worker);
 
     const job = getJobByObservationId(db, newObs.id);
     expect(job?.status).toBe('completed');
@@ -168,11 +185,62 @@ describe('ReconcileWorker.tick', () => {
       () => { throw new Error('boom'); },
       () => ({ decisions: [] })
     );
-    const worker = new ReconcileWorker(() => db, { caller });
-    await worker.tick();
+    const worker = createWorker({ caller });
+    await dispatchAndWait(worker);
 
     const job = getJobByObservationId(db, obs.id);
     expect(job?.status).toBe('failed');
     expect(job?.last_error).toContain('boom');
+  });
+
+  it('dispatches without awaiting LLM work and exposes an explicit idle barrier', async () => {
+    process.env[FLAG_KEY] = 'true';
+    seedSession(db, 'msid-w5', 'proj-w5');
+    const newObs = storeObservation(db, 'msid-w5', 'proj-w5', {
+      type: 'discovery',
+      title: 'new',
+      subtitle: null,
+      facts: [],
+      narrative: 'new',
+      concepts: ['shared'],
+      files_read: ['/shared'],
+      files_modified: [],
+    });
+    storeObservation(db, 'msid-w5', 'proj-w5', {
+      type: 'discovery',
+      title: 'old',
+      subtitle: null,
+      facts: [],
+      narrative: 'old',
+      concepts: ['shared'],
+      files_read: ['/shared'],
+      files_modified: [],
+    });
+    enqueueReconcileJob(db, { observationId: newObs.id, project: 'proj-w5' });
+
+    let releaseSelector!: () => void;
+    const selectorGate = new Promise<void>((resolve) => { releaseSelector = resolve; });
+    const caller: ReconciliationLlmCaller = {
+      async selectCandidates() {
+        await selectorGate;
+        return { candidateIds: [] };
+      },
+      async classifyRelations() {
+        return { decisions: [] };
+      },
+    };
+    const worker = createWorker({ caller });
+
+    await worker.tick();
+    expect(getJobByObservationId(db, newObs.id)?.status).toBe('processing');
+
+    let idle = false;
+    const idleBarrier = worker.waitForIdle().then(() => { idle = true; });
+    await Promise.resolve();
+    expect(idle).toBe(false);
+
+    releaseSelector();
+    await idleBarrier;
+    expect(getJobByObservationId(db, newObs.id)?.status).toBe('completed');
   });
 });

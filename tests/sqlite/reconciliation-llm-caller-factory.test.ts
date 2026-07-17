@@ -29,13 +29,13 @@ describe('createReconciliationCallerFromSettings', () => {
     expect(caller).toBeInstanceOf(NoopReconciliationLlmCaller);
   });
 
-  it('returns Noop when enabled but model is empty', async () => {
+  it('returns PiReconciliationLlmCaller when enabled and the legacy model label is empty', async () => {
     process.env[FLAG_KEY] = 'true';
     const caller = await createReconciliationCallerFromSettings();
-    expect(caller).toBeInstanceOf(NoopReconciliationLlmCaller);
+    expect(caller).toBeInstanceOf(PiReconciliationLlmCaller);
   });
 
-  it('returns PiReconciliationLlmCaller when enabled with model', async () => {
+  it('returns PiReconciliationLlmCaller when enabled with a legacy model label', async () => {
     process.env[FLAG_KEY] = 'true';
     process.env[MODEL_KEY] = 'openai-codex/gpt-5.3-codex-spark';
     const caller = await createReconciliationCallerFromSettings();

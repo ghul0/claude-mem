@@ -271,7 +271,7 @@ describe('processSingleReconcileJob', () => {
     expect(outcome.reason).toBe('reconciliation_disabled');
   });
 
-  it('skips with no_reconciliation_model_configured when model is empty', async () => {
+  it('uses the active caller contract when the legacy model label is empty', async () => {
     process.env[FLAG_KEY] = 'true';
     seedSession(db, 'msid-r2', 'proj-r2');
     const id = seedObs(db, 'msid-r2', 'proj-r2');
@@ -280,8 +280,8 @@ describe('processSingleReconcileJob', () => {
       { observationId: id, project: 'proj-r2' },
       new NoopReconciliationLlmCaller()
     );
-    expect(outcome.status).toBe('skipped');
-    expect(outcome.reason).toBe('no_reconciliation_model_configured');
+    expect(outcome.status).toBe('completed');
+    expect(outcome.reason).toBeNull();
   });
 
   it('skips with project_observation_limit_exceeded when too many obs', async () => {

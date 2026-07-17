@@ -238,9 +238,9 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_MIN_APPLY_CONFIDENCE: '0.90',      // Confidence threshold for terminal status application
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_MIN_WEAK_CONFIDENCE: '0.65',       // Confidence threshold for weak status application
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_MIN_TERMINAL_EVIDENCE_CHARS: '40', // Min evidence text length for terminal status
-    CLAUDE_MEM_OBSERVATION_RECONCILIATION_MODEL: '',                         // Reconciliation model (selector+classifier); empty = skip jobs
-    CLAUDE_MEM_OBSERVATION_RECONCILIATION_SELECTOR_MODEL: '',                // Override selector role model; empty = use _MODEL
-    CLAUDE_MEM_OBSERVATION_RECONCILIATION_CLASSIFIER_MODEL: '',              // Override classifier role model; empty = use _MODEL
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_MODEL: '',                         // Legacy model label for audit metadata; empty = use the active Pi CallerChain
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_SELECTOR_MODEL: '',                // Optional selector audit label; empty = _MODEL, then "chain"
+    CLAUDE_MEM_OBSERVATION_RECONCILIATION_CLASSIFIER_MODEL: '',              // Optional classifier audit label; empty = _MODEL, then "chain"
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_DAILY_BUDGET_USD: '0',             // Daily USD budget cap; 0 = unlimited; jobs skip when exceeded
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_KILL_SWITCH: 'false',              // Global kill-switch: when true, halt all reconcile jobs without disabling master flag
     CLAUDE_MEM_OBSERVATION_RECONCILIATION_CONCURRENCY: '1',                  // Max parallel reconcile jobs processed per tick (1 = serial)
