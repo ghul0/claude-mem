@@ -20,7 +20,8 @@
     "knowledge-graph",
     "transcript",
     "typescript",
-    "nodejs"
+    "nodejs",
+    "pi-package"
   ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
