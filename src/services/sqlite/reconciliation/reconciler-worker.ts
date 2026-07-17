@@ -90,10 +90,12 @@ export class ReconcileWorker {
       };
       void activeJob.then(finish, (error: unknown) => {
         finish();
+        const normalizedError = error instanceof Error ? error : new Error(String(error));
         logger.error(
           'RECONCILE',
           `Reconcile job ${job.id} escaped the job error boundary`,
-          error instanceof Error ? error : new Error(String(error))
+          {},
+          normalizedError
         );
       });
     }

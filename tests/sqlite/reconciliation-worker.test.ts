@@ -246,6 +246,58 @@ describe('ReconcileWorker.tick', () => {
     expect(getJobByObservationId(db, newObs.id)?.status).toBe('completed');
   });
 
+  it('routes escaped job errors through logger data and the error sink', async () => {
+    process.env[FLAG_KEY] = 'true';
+    seedSession(db, 'msid-w6', 'proj-w6');
+    const obs = storeObservation(db, 'msid-w6', 'proj-w6', {
+      type: 'discovery',
+      title: 'terminal write failure',
+      subtitle: null,
+      facts: [],
+      narrative: 'terminal write failure',
+      concepts: [],
+      files_read: [],
+      files_modified: [],
+    });
+    enqueueReconcileJob(db, { observationId: obs.id, project: 'proj-w6' });
+    const job = getJobByObservationId(db, obs.id);
+    expect(job).not.toBeNull();
+
+    db.run(`
+      CREATE TRIGGER fail_reconcile_job_terminal_update
+      BEFORE UPDATE OF status ON observation_reconcile_jobs
+      WHEN NEW.status IN ('completed', 'failed')
+      BEGIN
+        SELECT RAISE(ABORT, 'forced job status write failure');
+      END
+    `);
+
+    const sinkErrors: Error[] = [];
+    const originalError = logger.error.bind(logger);
+    const errorSpy = spyOn(logger, 'error').mockImplementation((component, message, context, data) => {
+      originalError(component, message, context, data);
+    });
+    logger.setErrorSink((error) => sinkErrors.push(error));
+    const worker = createWorker();
+
+    try {
+      await worker.tick();
+      await worker.waitForIdle();
+
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const [component, message, context, data] = errorSpy.mock.calls[0];
+      expect(component).toBe('RECONCILE');
+      expect(message).toBe(`Reconcile job ${job!.id} escaped the job error boundary`);
+      expect(context).toEqual({});
+      expect(data).toBeInstanceOf(Error);
+      expect((data as Error).message).toContain('forced job status write failure');
+      expect(sinkErrors).toEqual([data]);
+    } finally {
+      logger.setErrorSink(null);
+      errorSpy.mockRestore();
+    }
+  });
+
   it('contains rejected scheduled ticks instead of leaking unhandled rejections', async () => {
     process.env[FLAG_KEY] = 'true';
     const expectedError = new Error('scheduled tick boom');
