@@ -22,16 +22,21 @@ import {
   recordDependencyStatus,
   resetDependencyStatusesForTesting,
 } from '../../src/shared/dependency-health.js';
+import { SettingsDefaultsManager } from '../../src/shared/SettingsDefaultsManager.js';
 
 let loggerSpies: ReturnType<typeof spyOn>[] = [];
+const settingsEnvKeys = Object.keys(SettingsDefaultsManager.getAllDefaults());
 
 describe('Worker API Endpoints Integration', () => {
   let server: Server;
+  let workerUnderTest: WorkerService | null = null;
+  let settingsEnvSnapshot = new Map<string, string | undefined>();
   let testPort: number;
   let mockOptions: ServerOptions;
 
   beforeEach(() => {
     resetDependencyStatusesForTesting();
+    settingsEnvSnapshot = new Map(settingsEnvKeys.map((key) => [key, process.env[key]]));
     loggerSpies = [
       spyOn(logger, 'info').mockImplementation(() => {}),
       spyOn(logger, 'debug').mockImplementation(() => {}),
@@ -58,6 +63,13 @@ describe('Worker API Endpoints Integration', () => {
   afterEach(async () => {
     resetDependencyStatusesForTesting();
     loggerSpies.forEach(spy => spy.mockRestore());
+    (workerUnderTest as any)?.reconcileWorker?.stop();
+    workerUnderTest = null;
+
+    for (const [key, value] of settingsEnvSnapshot) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
 
     if (server && server.getHttpServer()) {
       try {
@@ -202,6 +214,7 @@ describe('Worker API Endpoints Integration', () => {
         );
 
         const worker = new WorkerService();
+        workerUnderTest = worker;
         expect((worker as any).initializationCompleteFlag).toBe(false);
         server = (worker as unknown as { server: Server }).server;
         await server.listen(testPort, '127.0.0.1');

@@ -6,9 +6,13 @@ import { PassThrough } from 'node:stream';
 // re-register the snapshots in afterAll so these mocks do not leak into later
 // test files (bun's mock.module is process-global; mock.restore() does NOT undo it).
 import * as realSettingsDefaultsManager from '../../../src/shared/SettingsDefaultsManager.js';
+import * as realMcpClient from '@modelcontextprotocol/sdk/client/index.js';
+import * as realMcpStdio from '@modelcontextprotocol/sdk/client/stdio.js';
 import * as realPaths from '../../../src/shared/paths.js';
 import * as realLogger from '../../../src/utils/logger.js';
 const realSettingsSnapshot = { ...realSettingsDefaultsManager };
+const realMcpClientSnapshot = { ...realMcpClient };
+const realMcpStdioSnapshot = { ...realMcpStdio };
 const realPathsSnapshot = { ...realPaths };
 const realLoggerSnapshot = { ...realLogger };
 const realChildProcess = require('node:child_process');
@@ -102,6 +106,8 @@ import { ChromaMcpManager } from '../../../src/services/sync/ChromaMcpManager.js
 afterAll(() => {
   ChromaMcpManager.setUvxAvailabilityProbeForTesting(null);
   mock.module('../../../src/shared/SettingsDefaultsManager.js', () => realSettingsSnapshot);
+  mock.module('@modelcontextprotocol/sdk/client/index.js', () => realMcpClientSnapshot);
+  mock.module('@modelcontextprotocol/sdk/client/stdio.js', () => realMcpStdioSnapshot);
   mock.module('../../../src/shared/paths.js', () => realPathsSnapshot);
   mock.module('../../../src/utils/logger.js', () => realLoggerSnapshot);
   mock.module('child_process', () => realChildProcess);

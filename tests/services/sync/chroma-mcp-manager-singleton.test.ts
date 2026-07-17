@@ -9,11 +9,15 @@ import path from 'node:path';
 // re-register the snapshots in afterAll so these mocks do not leak into later
 // test files (bun's mock.module is process-global; mock.restore() does NOT undo it).
 import * as realSettingsDefaultsManager from '../../../src/shared/SettingsDefaultsManager.js';
+import * as realMcpClient from '@modelcontextprotocol/sdk/client/index.js';
+import * as realMcpStdio from '@modelcontextprotocol/sdk/client/stdio.js';
 import * as realPaths from '../../../src/shared/paths.js';
 import * as realLogger from '../../../src/utils/logger.js';
 import * as realSupervisor from '../../../src/supervisor/index.ts';
 import * as realEnvSanitizer from '../../../src/supervisor/env-sanitizer.js';
 const realSettingsSnapshot = { ...realSettingsDefaultsManager };
+const realMcpClientSnapshot = { ...realMcpClient };
+const realMcpStdioSnapshot = { ...realMcpStdio };
 const realPathsSnapshot = { ...realPaths };
 const realLoggerSnapshot = { ...realLogger };
 const realSupervisorSnapshot = { ...realSupervisor };
@@ -289,6 +293,8 @@ afterAll(() => {
     Object.defineProperty(process, 'platform', realProcessPlatform);
   }
   mock.module('../../../src/shared/SettingsDefaultsManager.js', () => realSettingsSnapshot);
+  mock.module('@modelcontextprotocol/sdk/client/index.js', () => realMcpClientSnapshot);
+  mock.module('@modelcontextprotocol/sdk/client/stdio.js', () => realMcpStdioSnapshot);
   mock.module('../../../src/shared/paths.js', () => realPathsSnapshot);
   mock.module('../../../src/utils/logger.js', () => realLoggerSnapshot);
   mock.module('../../../src/supervisor/index.ts', () => realSupervisorSnapshot);

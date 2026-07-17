@@ -42,15 +42,19 @@ function makeSession(): ActiveSession {
 
 describe('Claude setup-required generator gate', () => {
   const realDateNow = Date.now;
+  const originalProvider = process.env.CLAUDE_MEM_PROVIDER;
 
   beforeEach(() => {
     resetDependencyStatusesForTesting();
     findClaudeExecutableImpl = () => '/mock/claude';
+    process.env.CLAUDE_MEM_PROVIDER = 'claude';
     Date.now = realDateNow;
   });
 
   afterEach(() => {
     Date.now = realDateNow;
+    if (originalProvider === undefined) delete process.env.CLAUDE_MEM_PROVIDER;
+    else process.env.CLAUDE_MEM_PROVIDER = originalProvider;
   });
 
   it('skips immediate repeat starts, then rechecks and clears status after cooldown repair', async () => {
@@ -93,6 +97,7 @@ describe('Claude setup-required generator gate', () => {
       sessionManager as any,
       {} as any,
       claudeProvider as any,
+      { startSession: async () => {} } as any,
       { startSession: async () => {} } as any,
       { startSession: async () => {} } as any,
       {} as any,
