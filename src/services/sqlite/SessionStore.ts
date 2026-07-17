@@ -1789,7 +1789,9 @@ export class SessionStore {
 
     const statusFilter = parseStatusFilter(undefined);
     if (statusFilter.filterApplied) {
-      const clause = buildStatusSqlClause(statusFilter.statuses);
+      const clause = buildStatusSqlClause(statusFilter.statuses, {
+        columnExpr: "COALESCE(o.status, 'active')",
+      });
       additionalConditions.push(clause.sql);
       params.push(...clause.params);
     }

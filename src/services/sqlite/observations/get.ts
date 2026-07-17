@@ -152,7 +152,9 @@ export function getObservationsByFilePath(
   let statusClause = '';
   const statusFilterFiles = parseStatusFilter(undefined);
   if (statusFilterFiles.filterApplied) {
-    const clause = buildStatusSqlClause(statusFilterFiles.statuses);
+    const clause = buildStatusSqlClause(statusFilterFiles.statuses, {
+      columnExpr: "COALESCE(o.status, 'active')",
+    });
     statusClause = `AND ${clause.sql}`;
     params.push(...clause.params);
   }
