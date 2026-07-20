@@ -155,9 +155,9 @@ function splitQualifiedModel(modelName: string): { provider?: string; model: str
 export class PiCaller implements LlmCaller {
   readonly providerId: ProviderId;
   readonly modelName: string;
+  readonly extensionPaths: string[];
   private piExecutable: string;
   private thinking: string;
-  private extensionPaths: string[];
 
   constructor(args: { providerId: ProviderId; modelName: string; piExecutable?: string; thinking?: string; extensionPaths?: string[] }) {
     this.providerId = args.providerId;

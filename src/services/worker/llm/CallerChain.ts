@@ -42,6 +42,7 @@ export function createCallerForProvider(providerId: ProviderId): LlmCaller {
       return new PiCaller({
         providerId: 'minimax-m3',
         modelName: 'minimax/MiniMax-M3',
+        extensionPaths: [join(PI_NPM_MODULES, '@sinamtz', 'pi-minimax-provider', 'dist', 'index.js')],
       });
     case 'codex-mini':
       return new PiCaller({ providerId: 'codex-mini', modelName: 'openai-codex/gpt-5.4-mini' });
