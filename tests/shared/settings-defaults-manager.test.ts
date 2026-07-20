@@ -359,10 +359,10 @@ describe('SettingsDefaultsManager', () => {
       expect(SettingsDefaultsManager.get('CLAUDE_MEM_WORKER_PORT')).toBe(expectedPort);
     });
 
-    it('keeps the source default fallback chain fail-closed', () => {
+    it('keeps the source default fallback chain fail-closed, minimax last after the codex/gpt providers', () => {
       const defaults = SettingsDefaultsManager.getAllDefaults();
       expect(defaults.CLAUDE_MEM_FALLBACK_CHAIN).toBe(
-        'antigravity-tm,antigravity-ghul,codex-spark,minimax-m3,codex-mini',
+        'antigravity-tm,antigravity-ghul,codex-spark,codex-mini,minimax-m3',
       );
       expect(defaults.CLAUDE_MEM_FALLBACK_CHAIN).not.toContain('claude-haiku');
     });
